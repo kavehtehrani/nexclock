@@ -59,8 +59,7 @@ pub fn merged_rect(cells: &[Vec<Rect>], placement: &GridPlacement) -> Option<Rec
 
 /// Distributes `total` pixels across `count` segments according to optional percentages.
 /// If percentages are omitted, distributes evenly.
-#[allow(dead_code)]
-pub fn resolve_sizes(total: u16, count: u16, percentages: Option<&[u16]>) -> Vec<u16> {
+fn resolve_sizes(total: u16, count: u16, percentages: Option<&[u16]>) -> Vec<u16> {
     if count == 0 {
         return vec![];
     }
@@ -93,4 +92,36 @@ pub fn resolve_sizes(total: u16, count: u16, percentages: Option<&[u16]>) -> Vec
             sizes
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn main_clock_rect_spans_only_row_0() {
+        let grid = GridConfig {
+            rows: 3,
+            columns: 2,
+            row_heights: Some(vec![40, 30, 30]),
+            column_widths: None,
+        };
+        let content_area = Rect { x: 0, y: 0, width: 117, height: 35 };
+        let cells = compute_grid(content_area, &grid);
+
+        // Main clock: row=0, col=0, row_span=1, col_span=2
+        let placement = GridPlacement { row: 0, column: 0, row_span: 1, col_span: 2 };
+        let rect = merged_rect(&cells, &placement).unwrap();
+
+        assert_eq!(rect.y, 0);
+        assert_eq!(rect.x, 0);
+        assert_eq!(rect.width, 117);
+        assert!(rect.height <= 15, "main_clock height should be ~14, got {}", rect.height);
+
+        // NY clock: row=1, col=0
+        let ny = GridPlacement { row: 1, column: 0, row_span: 1, col_span: 1 };
+        let ny_rect = merged_rect(&cells, &ny).unwrap();
+        assert!(rect.y + rect.height <= ny_rect.y, "overlap between main_clock and ny_clock");
+    }
+
 }

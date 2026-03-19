@@ -256,9 +256,16 @@ fn render_figlet_clock(
     let max_lines = area.height as usize;
     let lines: Vec<Line> = art
         .lines()
+        .filter(|l| !l.is_empty() || art.lines().count() <= max_lines)
         .take(max_lines)
         .map(|l: &str| Line::styled(l.to_string(), Style::default().fg(color)))
         .collect();
+
+    // Fallback to plain text if FIGlet produced no visible lines
+    if lines.is_empty() {
+        render_plain_fallback(frame, area, time_str, color);
+        return;
+    }
 
     let content_height = lines.len() as u16;
     let y_offset = area.height.saturating_sub(content_height) / 2;

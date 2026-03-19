@@ -13,8 +13,6 @@ use ratatui::{
     Frame,
 };
 
-use tracing::debug;
-
 use crate::app::{App, ComponentRuntime, FontStyle, ResolvedTheme, UiMode};
 use crate::component::{ClockStyle, ComponentConfig, ComponentType};
 use crate::constants::{MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, STATUS_BAR_HEIGHT};
@@ -93,19 +91,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         let Some(cell_rect) = grid::merged_rect(&cells, &entry.placement) else {
             continue;
         };
-
-        debug!(
-            id = %entry.id,
-            row = entry.placement.row,
-            col = entry.placement.column,
-            row_span = entry.placement.row_span,
-            col_span = entry.placement.col_span,
-            x = cell_rect.x,
-            y = cell_rect.y,
-            w = cell_rect.width,
-            h = cell_rect.height,
-            "component cell_rect"
-        );
 
         // Store the rendered area in runtime
         if let Some(rt) = app.runtime.get_mut(&entry.id) {
