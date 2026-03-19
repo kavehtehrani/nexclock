@@ -60,18 +60,131 @@ pub struct CalendarConfig {
     pub show_gregorian: bool,
 }
 
+/// Identifies which slot in the 5-slot layout grid a panel occupies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Top,
+    LeftTop,
+    LeftBottom,
+    RightTop,
+    RightBottom,
+}
+
+impl Slot {
+    pub const ALL: &[Self] = &[
+        Self::Top,
+        Self::LeftTop,
+        Self::RightTop,
+        Self::LeftBottom,
+        Self::RightBottom,
+    ];
+
+    /// Which sizing field controls this slot's vertical size.
+    pub fn height_field(self) -> SizingField {
+        match self {
+            Self::Top => SizingField::TopHeight,
+            Self::LeftTop | Self::LeftBottom => SizingField::LeftSplit,
+            Self::RightTop | Self::RightBottom => SizingField::RightSplit,
+        }
+    }
+
+    /// Whether increasing the height field makes this slot taller.
+    pub fn grow_means_taller(self) -> bool {
+        matches!(self, Self::Top | Self::LeftTop | Self::RightTop)
+    }
+
+    /// Whether this slot has horizontal resize control (Top is full-width, so no).
+    pub fn has_width_control(self) -> bool {
+        !matches!(self, Self::Top)
+    }
+
+    /// Whether increasing `left_column_percent` makes this slot wider.
+    pub fn grow_means_wider(self) -> bool {
+        matches!(self, Self::LeftTop | Self::LeftBottom)
+    }
+}
+
+/// Identifies a layout sizing field that can be adjusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizingField {
+    TopHeight,
+    LeftColumn,
+    LeftSplit,
+    RightSplit,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LayoutConfig {
-    #[serde(default = "default_clock_height")]
-    pub clock_height_percent: u16,
-    #[serde(default = "default_info_height")]
-    pub info_height_percent: u16,
+    // Panel placement
+    #[serde(default = "default_top_panel")]
+    pub top: String,
+    #[serde(default = "default_left_top_panel")]
+    pub left_top: String,
+    #[serde(default = "default_left_bottom_panel")]
+    pub left_bottom: String,
+    #[serde(default = "default_right_top_panel")]
+    pub right_top: String,
+    #[serde(default = "default_right_bottom_panel")]
+    pub right_bottom: String,
+
+    // Sizing (aliases for backwards compat with old field names)
+    #[serde(default = "default_top_height", alias = "clock_height_percent")]
+    pub top_height_percent: u16,
+    #[serde(default = "default_bottom_height", alias = "info_height_percent")]
+    pub bottom_height_percent: u16,
     #[serde(default = "default_column_split")]
     pub left_column_percent: u16,
-    #[serde(default = "default_left_top")]
-    pub left_top_percent: u16,
-    #[serde(default = "default_right_top")]
-    pub right_top_percent: u16,
+    #[serde(default = "default_left_split", alias = "left_top_percent")]
+    pub left_split_percent: u16,
+    #[serde(default = "default_right_split", alias = "right_top_percent")]
+    pub right_split_percent: u16,
+}
+
+impl LayoutConfig {
+    /// Returns the panel config name assigned to a given slot.
+    pub fn panel_at(&self, slot: Slot) -> &str {
+        match slot {
+            Slot::Top => &self.top,
+            Slot::LeftTop => &self.left_top,
+            Slot::LeftBottom => &self.left_bottom,
+            Slot::RightTop => &self.right_top,
+            Slot::RightBottom => &self.right_bottom,
+        }
+    }
+
+    /// Sets the panel config name for a given slot.
+    pub fn set_panel_at(&mut self, slot: Slot, name: String) {
+        match slot {
+            Slot::Top => self.top = name,
+            Slot::LeftTop => self.left_top = name,
+            Slot::LeftBottom => self.left_bottom = name,
+            Slot::RightTop => self.right_top = name,
+            Slot::RightBottom => self.right_bottom = name,
+        }
+    }
+
+    /// Finds which slot a panel name is assigned to.
+    pub fn slot_of(&self, panel_name: &str) -> Option<Slot> {
+        Slot::ALL.iter().copied().find(|&s| self.panel_at(s) == panel_name)
+    }
+
+    /// Swaps the panel assignments of two slots.
+    pub fn swap_slots(&mut self, a: Slot, b: Slot) {
+        let name_a = self.panel_at(a).to_string();
+        let name_b = self.panel_at(b).to_string();
+        self.set_panel_at(a, name_b);
+        self.set_panel_at(b, name_a);
+    }
+
+    /// Returns a mutable reference to the sizing value for a given field.
+    pub fn sizing_field_mut(&mut self, field: SizingField) -> &mut u16 {
+        match field {
+            SizingField::TopHeight => &mut self.top_height_percent,
+            SizingField::LeftColumn => &mut self.left_column_percent,
+            SizingField::LeftSplit => &mut self.left_split_percent,
+            SizingField::RightSplit => &mut self.right_split_percent,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -115,11 +228,16 @@ fn default_true() -> bool { true }
 fn default_time_format() -> String { constants::DEFAULT_TIME_FORMAT.to_string() }
 fn default_secondary_timezone() -> String { constants::DEFAULT_SECONDARY_TIMEZONE.to_string() }
 fn default_secondary_label() -> String { constants::DEFAULT_SECONDARY_LABEL.to_string() }
-fn default_clock_height() -> u16 { constants::DEFAULT_CLOCK_HEIGHT_PERCENT }
-fn default_info_height() -> u16 { constants::DEFAULT_INFO_HEIGHT_PERCENT }
+fn default_top_panel() -> String { constants::DEFAULT_TOP_PANEL.to_string() }
+fn default_left_top_panel() -> String { constants::DEFAULT_LEFT_TOP_PANEL.to_string() }
+fn default_left_bottom_panel() -> String { constants::DEFAULT_LEFT_BOTTOM_PANEL.to_string() }
+fn default_right_top_panel() -> String { constants::DEFAULT_RIGHT_TOP_PANEL.to_string() }
+fn default_right_bottom_panel() -> String { constants::DEFAULT_RIGHT_BOTTOM_PANEL.to_string() }
+fn default_top_height() -> u16 { constants::DEFAULT_TOP_HEIGHT_PERCENT }
+fn default_bottom_height() -> u16 { constants::DEFAULT_BOTTOM_HEIGHT_PERCENT }
 fn default_column_split() -> u16 { constants::DEFAULT_LEFT_COLUMN_PERCENT }
-fn default_left_top() -> u16 { constants::DEFAULT_LEFT_TOP_PERCENT }
-fn default_right_top() -> u16 { constants::DEFAULT_RIGHT_TOP_PERCENT }
+fn default_left_split() -> u16 { constants::DEFAULT_LEFT_SPLIT_PERCENT }
+fn default_right_split() -> u16 { constants::DEFAULT_RIGHT_SPLIT_PERCENT }
 fn default_ip_refresh() -> u64 { constants::DEFAULT_IP_REFRESH_MINUTES }
 fn default_latitude() -> f64 { constants::DEFAULT_LATITUDE }
 fn default_longitude() -> f64 { constants::DEFAULT_LONGITUDE }
@@ -166,11 +284,16 @@ impl Default for CalendarConfig {
 impl Default for LayoutConfig {
     fn default() -> Self {
         Self {
-            clock_height_percent: default_clock_height(),
-            info_height_percent: default_info_height(),
+            top: default_top_panel(),
+            left_top: default_left_top_panel(),
+            left_bottom: default_left_bottom_panel(),
+            right_top: default_right_top_panel(),
+            right_bottom: default_right_bottom_panel(),
+            top_height_percent: default_top_height(),
+            bottom_height_percent: default_bottom_height(),
             left_column_percent: default_column_split(),
-            left_top_percent: default_left_top(),
-            right_top_percent: default_right_top(),
+            left_split_percent: default_left_split(),
+            right_split_percent: default_right_split(),
         }
     }
 }
@@ -289,14 +412,25 @@ impl AppConfig {
             ));
         }
 
-        if self.layout.clock_height_percent > 90 {
-            issues.push("layout.clock_height_percent must be <= 90".to_string());
+        if self.layout.top_height_percent > 90 {
+            issues.push("layout.top_height_percent must be <= 90".to_string());
         }
-        if self.layout.info_height_percent > 90 {
-            issues.push("layout.info_height_percent must be <= 90".to_string());
+        if self.layout.bottom_height_percent > 90 {
+            issues.push("layout.bottom_height_percent must be <= 90".to_string());
         }
         if self.layout.left_column_percent == 0 || self.layout.left_column_percent > 90 {
             issues.push("layout.left_column_percent must be 1-90".to_string());
+        }
+
+        // Check for duplicate panel assignments
+        let panels: Vec<&str> = Slot::ALL.iter().map(|&s| self.layout.panel_at(s)).collect();
+        for (i, a) in panels.iter().enumerate() {
+            for b in &panels[i + 1..] {
+                if a == b {
+                    issues.push(format!("panel \"{a}\" is assigned to multiple slots"));
+                    break;
+                }
+            }
         }
 
         if self.weather.temperature_unit != "celsius"

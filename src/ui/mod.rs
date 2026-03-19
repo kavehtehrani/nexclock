@@ -14,6 +14,7 @@ use ratatui::{
 };
 
 use crate::app::{App, PanelId, UiMode};
+use crate::config::Slot;
 use crate::constants::{self, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, STATUS_BAR_HEIGHT};
 
 /// Returns a bordered block with the given title, highlighted if focused.
@@ -45,79 +46,52 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         return;
     }
 
-    let config = &app.config;
+    let layout = &app.config.layout;
 
-    // Main vertical split: clock | info panels | status bar
+    // Main vertical split: top row | bottom grid | status bar
     let rows = Layout::vertical([
-        Constraint::Percentage(config.layout.clock_height_percent),
-        Constraint::Percentage(config.layout.info_height_percent),
+        Constraint::Percentage(layout.top_height_percent),
+        Constraint::Percentage(layout.bottom_height_percent),
         Constraint::Length(STATUS_BAR_HEIGHT),
     ])
     .split(area);
 
-    let focused = app.focused_panel;
-
-    // Clock panel - store area for mouse click detection
-    let clock_area = clock::render(
-        frame,
-        rows[0],
-        &app.config.clock,
-        app.colon_visible(),
-        app.font_style,
-        focused == PanelId::Clock,
-    );
-    app.clock_area = clock_area;
-
-    // Info panels: split into left and right columns
+    // Bottom grid: left and right columns
     let columns = Layout::horizontal([
-        Constraint::Percentage(config.layout.left_column_percent),
-        Constraint::Percentage(100 - config.layout.left_column_percent),
+        Constraint::Percentage(layout.left_column_percent),
+        Constraint::Percentage(100 - layout.left_column_percent),
     ])
     .split(rows[1]);
 
-    // Left column: secondary clock (top) + weather (bottom)
+    // Left column split
     let left_panels = Layout::vertical([
-        Constraint::Percentage(config.layout.left_top_percent),
-        Constraint::Percentage(100 - config.layout.left_top_percent),
+        Constraint::Percentage(layout.left_split_percent),
+        Constraint::Percentage(100 - layout.left_split_percent),
     ])
     .split(columns[0]);
 
-    if config.secondary_clock.enabled {
-        secondary_clock::render(
-            frame,
-            left_panels[0],
-            &config.secondary_clock,
-            focused == PanelId::SecondaryClock,
-        );
-    }
-
-    if config.weather.enabled {
-        weather::render(
-            frame,
-            left_panels[1],
-            &app.weather(),
-            focused == PanelId::Weather,
-        );
-    }
-
-    // Right column: calendar (top) + system stats (bottom)
+    // Right column split
     let right_panels = Layout::vertical([
-        Constraint::Percentage(config.layout.right_top_percent),
-        Constraint::Percentage(100 - config.layout.right_top_percent),
+        Constraint::Percentage(layout.right_split_percent),
+        Constraint::Percentage(100 - layout.right_split_percent),
     ])
     .split(columns[1]);
 
-    if config.calendar.show_gregorian {
-        calendar::render(frame, right_panels[0], focused == PanelId::Calendar);
-    }
+    // Map slots to computed areas
+    let slot_areas: [(Slot, Rect); 5] = [
+        (Slot::Top, rows[0]),
+        (Slot::LeftTop, left_panels[0]),
+        (Slot::LeftBottom, left_panels[1]),
+        (Slot::RightTop, right_panels[0]),
+        (Slot::RightBottom, right_panels[1]),
+    ];
 
-    if config.system_stats.enabled {
-        system_stats::render(
-            frame,
-            right_panels[1],
-            &app.system_stats(),
-            focused == PanelId::SystemStats,
-        );
+    // Render each slot and track where the Clock panel ends up
+    for &(slot, area) in &slot_areas {
+        let panel = render_panel(frame, area, app, slot);
+        if panel == PanelId::Clock {
+            app.clock_area = area;
+        }
     }
 
     // Status bar
@@ -130,6 +104,43 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         UiMode::VisibilityMenu => render_visibility_menu(frame, app, area),
         UiMode::Normal => {}
     }
+}
+
+/// Renders whichever panel is assigned to the given slot. Returns the PanelId rendered.
+fn render_panel(frame: &mut Frame, area: Rect, app: &App, slot: Slot) -> PanelId {
+    let panel = PanelId::from_name(app.config.layout.panel_at(slot));
+    let focused = app.focused_panel == panel;
+
+    if !app.is_panel_visible(panel) {
+        return panel;
+    }
+
+    match panel {
+        PanelId::Clock => {
+            clock::render(
+                frame,
+                area,
+                &app.config.clock,
+                app.colon_visible(),
+                app.font_style,
+                focused,
+            );
+        }
+        PanelId::SecondaryClock => {
+            secondary_clock::render(frame, area, &app.config.secondary_clock, focused);
+        }
+        PanelId::Weather => {
+            weather::render(frame, area, &app.weather(), focused);
+        }
+        PanelId::Calendar => {
+            calendar::render(frame, area, focused);
+        }
+        PanelId::SystemStats => {
+            system_stats::render(frame, area, &app.system_stats(), focused);
+        }
+    }
+
+    panel
 }
 
 /// Renders a centered help overlay with keyboard shortcuts.
@@ -189,7 +200,7 @@ fn render_context_menu(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     let title = format!("{} ", app.focused_panel.label());
-    render_popup(frame, area, &title, &lines, 30);
+    render_popup(frame, area, &title, &lines, 35);
 }
 
 /// Renders the visibility menu as a centered overlay.
