@@ -7,10 +7,8 @@ use ratatui::{
 };
 use tui_big_text::{BigText, PixelSize};
 
-use crate::constants::{
-    DEFAULT_SHOW_SECONDS, DEFAULT_TIME_FORMAT_24H, PIXEL_SIZE_FULL_MIN_HEIGHT,
-    PIXEL_SIZE_HALF_MIN_HEIGHT,
-};
+use crate::config::ClockConfig;
+use crate::constants::{PIXEL_SIZE_FULL_MIN_HEIGHT, PIXEL_SIZE_HALF_MIN_HEIGHT};
 
 /// Selects the best pixel size for the available area height.
 fn select_pixel_size(available_height: u16) -> PixelSize {
@@ -23,10 +21,11 @@ fn select_pixel_size(available_height: u16) -> PixelSize {
     }
 }
 
-/// Formats the current time string based on settings.
-fn format_time(use_24h: bool, show_seconds: bool) -> String {
+/// Formats the current time string based on config.
+fn format_time(config: &ClockConfig) -> String {
     let now = Local::now();
-    match (use_24h, show_seconds) {
+    let use_24h = config.time_format == "24h";
+    match (use_24h, config.show_seconds) {
         (true, true) => now.format("%H:%M:%S").to_string(),
         (true, false) => now.format("%H:%M").to_string(),
         (false, true) => now.format("%I:%M:%S %p").to_string(),
@@ -35,13 +34,13 @@ fn format_time(use_24h: bool, show_seconds: bool) -> String {
 }
 
 /// Renders the main clock widget into the given area.
-pub fn render(frame: &mut Frame, area: Rect) {
+pub fn render(frame: &mut Frame, area: Rect, config: &ClockConfig) {
     let block = Block::bordered().title(" Clock ");
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     let pixel_size = select_pixel_size(inner.height);
-    let time_str = format_time(DEFAULT_TIME_FORMAT_24H, DEFAULT_SHOW_SECONDS);
+    let time_str = format_time(config);
 
     let big_text = BigText::builder()
         .pixel_size(pixel_size)

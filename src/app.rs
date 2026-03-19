@@ -1,14 +1,18 @@
+use crate::config::AppConfig;
+
 /// Core application state.
 pub struct App {
     pub running: bool,
     pub tick_count: u64,
+    pub config: AppConfig,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(config: AppConfig) -> Self {
         Self {
             running: true,
             tick_count: 0,
+            config,
         }
     }
 
