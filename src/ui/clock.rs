@@ -1,8 +1,9 @@
 use chrono::Local;
 use ratatui::{
-    layout::{Alignment, Rect},
-    style::{Color, Style},
-    widgets::Block,
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Paragraph},
     Frame,
 };
 use tui_big_text::{BigText, PixelSize};
@@ -33,13 +34,43 @@ fn format_time(config: &ClockConfig) -> String {
     }
 }
 
+/// Returns the local timezone name (e.g. "America/Vancouver").
+/// Reads the /etc/localtime symlink (most reliable), then TZ env var, then UTC offset.
+fn local_timezone_name() -> String {
+    // Try /etc/localtime symlink (what the system actually uses)
+    if let Ok(target) = std::fs::read_link("/etc/localtime") {
+        let path = target.to_string_lossy();
+        if let Some(tz) = path.strip_prefix("/usr/share/zoneinfo/") {
+            return tz.to_string();
+        }
+    }
+
+    // Try TZ env var
+    if let Ok(tz) = std::env::var("TZ")
+        && !tz.is_empty()
+    {
+        return tz;
+    }
+
+    // Fallback: UTC offset
+    Local::now().format("%Z").to_string()
+}
+
 /// Renders the main clock widget into the given area.
 pub fn render(frame: &mut Frame, area: Rect, config: &ClockConfig) {
-    let block = Block::bordered().title(" Clock ");
+    let tz_name = local_timezone_name();
+    let block = Block::bordered().title(format!(" {tz_name} "));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let pixel_size = select_pixel_size(inner.height);
+    // Reserve 1 row at the bottom for the date line
+    let chunks = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .split(inner);
+
+    let pixel_size = select_pixel_size(chunks[0].height);
     let time_str = format_time(config);
 
     let big_text = BigText::builder()
@@ -49,5 +80,19 @@ pub fn render(frame: &mut Frame, area: Rect, config: &ClockConfig) {
         .alignment(Alignment::Center)
         .build();
 
-    frame.render_widget(big_text, inner);
+    frame.render_widget(big_text, chunks[0]);
+
+    // Date line below the clock
+    let now = Local::now();
+    let date_str = now.format("%A, %B %d, %Y").to_string();
+    let date_line = Line::from(Span::styled(
+        date_str,
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::ITALIC),
+    ));
+    frame.render_widget(
+        Paragraph::new(date_line).alignment(Alignment::Center),
+        chunks[1],
+    );
 }
