@@ -1,17 +1,24 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
 };
 
+use crate::app::ResolvedTheme;
 use crate::data::system::SystemStats;
 use crate::ui;
 
-/// Renders the system stats panel.
-pub fn render(frame: &mut Frame, area: Rect, stats: &SystemStats, is_focused: bool) {
-    let block = ui::panel_block("System", is_focused);
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    stats: &SystemStats,
+    is_focused: bool,
+    is_editing: bool,
+    theme: &ResolvedTheme,
+) {
+    let block = ui::panel_block("System", is_focused, is_editing, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -34,34 +41,33 @@ pub fn render(frame: &mut Frame, area: Rect, stats: &SystemStats, is_focused: bo
             Span::styled(
                 "CPU: ",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(theme.muted)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(temp_str, Style::default().fg(Color::Yellow)),
+            Span::styled(temp_str, Style::default().fg(theme.secondary)),
         ]),
         Line::from(vec![
             Span::styled(
                 "Mem: ",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(theme.muted)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(mem_str, Style::default().fg(Color::Green)),
+            Span::styled(mem_str, Style::default().fg(theme.tertiary)),
         ]),
         Line::from(vec![
             Span::styled(
                 "Up:  ",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(theme.muted)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(uptime_str, Style::default().fg(Color::Cyan)),
+            Span::styled(uptime_str, Style::default().fg(theme.primary)),
         ]),
     ];
 
     let paragraph = Paragraph::new(lines).alignment(Alignment::Left);
 
-    // Vertically center within inner area
     let content_height = 3u16;
     let y_offset = inner.height.saturating_sub(content_height) / 2;
     let centered = Rect {

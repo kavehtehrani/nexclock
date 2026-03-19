@@ -1,4 +1,5 @@
-use chrono::Local;
+use chrono::{Local, Utc};
+use chrono_tz::Tz;
 use figlet_rs::{FIGlet, Toilet};
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
@@ -8,21 +9,164 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::FontStyle;
-use crate::config::ClockConfig;
+use crate::app::{FontStyle, ResolvedTheme};
+use crate::component::{ClockSettings, ClockStyle};
 use crate::ui;
 
 const BLINK_REPLACEMENT: char = ' ';
 
-/// Formats the current time string based on config, with optional colon blinking.
-fn format_time(config: &ClockConfig, colon_visible: bool) -> String {
-    let now = Local::now();
-    let use_24h = config.time_format == "24h";
-    let time_str = match (use_24h, config.show_seconds) {
-        (true, true) => now.format("%H:%M:%S").to_string(),
-        (true, false) => now.format("%H:%M").to_string(),
-        (false, true) => now.format("%I:%M:%S %p").to_string(),
-        (false, false) => now.format("%I:%M %p").to_string(),
+/// Renders a clock component (either large FIGlet or compact text style).
+#[allow(clippy::too_many_arguments)]
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    settings: &ClockSettings,
+    tick_count: u64,
+    font_style: FontStyle,
+    is_focused: bool,
+    is_editing: bool,
+    theme: &ResolvedTheme,
+) {
+    match settings.style {
+        ClockStyle::Large => render_large(frame, area, settings, tick_count, font_style, is_focused, is_editing, theme),
+        ClockStyle::Compact => render_compact(frame, area, settings, is_focused, is_editing, theme),
+    }
+}
+
+/// Returns the title for the clock panel.
+fn clock_title(settings: &ClockSettings) -> String {
+    if let Some(ref label) = settings.label {
+        return label.clone();
+    }
+    if let Some(ref tz_str) = settings.timezone {
+        return tz_str.clone();
+    }
+    local_timezone_name()
+}
+
+// ── Large (FIGlet) style ────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn render_large(
+    frame: &mut Frame,
+    area: Rect,
+    settings: &ClockSettings,
+    tick_count: u64,
+    font_style: FontStyle,
+    is_focused: bool,
+    is_editing: bool,
+    theme: &ResolvedTheme,
+) {
+    let title = clock_title(settings);
+    let block = ui::panel_block(&title, is_focused, is_editing, theme);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+
+    let colon_visible = if settings.blink_separator {
+        tick_count.is_multiple_of(2)
+    } else {
+        true
+    };
+
+    let time_str = format_time(settings, colon_visible);
+    render_figlet_clock(frame, chunks[0], &time_str, font_style, theme.primary);
+
+    let date_str = format_date(settings);
+    let date_line = Line::from(Span::styled(
+        date_str,
+        Style::default()
+            .fg(theme.muted)
+            .add_modifier(Modifier::ITALIC),
+    ));
+    frame.render_widget(
+        Paragraph::new(date_line).alignment(Alignment::Center),
+        chunks[1],
+    );
+}
+
+// ── Compact style ───────────────────────────────────────────────────
+
+fn render_compact(
+    frame: &mut Frame,
+    area: Rect,
+    settings: &ClockSettings,
+    is_focused: bool,
+    is_editing: bool,
+    theme: &ResolvedTheme,
+) {
+    let title = clock_title(settings);
+    let block = ui::panel_block(&title, is_focused, is_editing, theme);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // Validate timezone if specified
+    if let Some(ref tz_str) = settings.timezone
+        && tz_str.parse::<Tz>().is_err() {
+            let err_line =
+                Line::from("Invalid timezone").style(Style::default().fg(theme.error));
+            frame.render_widget(
+                Paragraph::new(err_line).alignment(Alignment::Center),
+                inner,
+            );
+            return;
+        }
+
+    let time_str = format_time(settings, true);
+    let date_str = format_date(settings);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            time_str,
+            Style::default()
+                .fg(theme.secondary)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            date_str,
+            Style::default().fg(theme.muted),
+        )),
+    ];
+
+    let paragraph = Paragraph::new(lines).alignment(Alignment::Center);
+
+    let y_offset = inner.height.saturating_sub(2) / 2;
+    let centered = Rect {
+        x: inner.x,
+        y: inner.y + y_offset,
+        width: inner.width,
+        height: inner.height.saturating_sub(y_offset),
+    };
+
+    frame.render_widget(paragraph, centered);
+}
+
+// ── Time/date formatting ────────────────────────────────────────────
+
+fn format_time(settings: &ClockSettings, colon_visible: bool) -> String {
+    let use_24h = settings.time_format == "24h";
+
+    let time_str = if let Some(ref tz_str) = settings.timezone {
+        if let Ok(tz) = tz_str.parse::<Tz>() {
+            let now = Utc::now().with_timezone(&tz);
+            match (use_24h, settings.show_seconds) {
+                (true, true) => now.format("%H:%M:%S").to_string(),
+                (true, false) => now.format("%H:%M").to_string(),
+                (false, true) => now.format("%I:%M:%S %p").to_string(),
+                (false, false) => now.format("%I:%M %p").to_string(),
+            }
+        } else {
+            "??:??".to_string()
+        }
+    } else {
+        let now = Local::now();
+        match (use_24h, settings.show_seconds) {
+            (true, true) => now.format("%H:%M:%S").to_string(),
+            (true, false) => now.format("%H:%M").to_string(),
+            (false, true) => now.format("%I:%M:%S %p").to_string(),
+            (false, false) => now.format("%I:%M %p").to_string(),
+        }
     };
 
     if !colon_visible {
@@ -30,6 +174,17 @@ fn format_time(config: &ClockConfig, colon_visible: bool) -> String {
     } else {
         time_str
     }
+}
+
+fn format_date(settings: &ClockSettings) -> String {
+    if let Some(ref tz_str) = settings.timezone
+        && let Ok(tz) = tz_str.parse::<Tz>() {
+            return Utc::now()
+                .with_timezone(&tz)
+                .format(&settings.date_format)
+                .to_string();
+        }
+    Local::now().format(&settings.date_format).to_string()
 }
 
 /// Returns the local timezone name (e.g. "America/Vancouver").
@@ -50,7 +205,8 @@ fn local_timezone_name() -> String {
     Local::now().format("%Z").to_string()
 }
 
-/// Font can be either FIGlet or Toilet, both produce FIGure via convert().
+// ── FIGlet rendering ────────────────────────────────────────────────
+
 enum Font {
     Figlet(FIGlet),
     Toilet(Toilet),
@@ -65,7 +221,6 @@ impl Font {
     }
 }
 
-/// Loads a font by style.
 fn load_font(style: FontStyle) -> Option<Font> {
     match style {
         FontStyle::Standard => FIGlet::standard().ok().map(Font::Figlet),
@@ -80,63 +235,29 @@ fn load_font(style: FontStyle) -> Option<Font> {
     }
 }
 
-/// Renders the main clock widget into the given area.
-/// Returns the clock area rect for mouse click detection.
-pub fn render(
+fn render_figlet_clock(
     frame: &mut Frame,
     area: Rect,
-    config: &ClockConfig,
-    colon_visible: bool,
-    font_style: FontStyle,
-    is_focused: bool,
-) -> Rect {
-    let tz_name = local_timezone_name();
-    let block = ui::panel_block(&tz_name, is_focused);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    // Reserve 1 row at the bottom for the date line
-    let chunks = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .split(inner);
-
-    let time_str = format_time(config, colon_visible);
-    render_figlet_clock(frame, chunks[0], &time_str, font_style);
-
-    // Date line below the clock
-    let now = Local::now();
-    let date_str = now.format(&config.date_format).to_string();
-    let date_line = Line::from(Span::styled(
-        date_str,
-        Style::default()
-            .fg(Color::DarkGray)
-            .add_modifier(Modifier::ITALIC),
-    ));
-    frame.render_widget(
-        Paragraph::new(date_line).alignment(Alignment::Center),
-        chunks[1],
-    );
-
-    area
-}
-
-/// Renders the time string as FIGlet ASCII art, centered in the area.
-fn render_figlet_clock(frame: &mut Frame, area: Rect, time_str: &str, style: FontStyle) {
+    time_str: &str,
+    style: FontStyle,
+    color: Color,
+) {
     let Some(font) = load_font(style) else {
-        render_plain_fallback(frame, area, time_str);
+        render_plain_fallback(frame, area, time_str, color);
         return;
     };
 
     let Some(art) = font.convert(time_str) else {
-        render_plain_fallback(frame, area, time_str);
+        render_plain_fallback(frame, area, time_str, color);
         return;
     };
 
+    // Clamp to available height to prevent overflow into adjacent panels
+    let max_lines = area.height as usize;
     let lines: Vec<Line> = art
         .lines()
-        .map(|l: &str| Line::styled(l.to_string(), Style::default().fg(Color::Cyan)))
+        .take(max_lines)
+        .map(|l: &str| Line::styled(l.to_string(), Style::default().fg(color)))
         .collect();
 
     let content_height = lines.len() as u16;
@@ -146,7 +267,7 @@ fn render_figlet_clock(frame: &mut Frame, area: Rect, time_str: &str, style: Fon
         x: area.x,
         y: area.y + y_offset,
         width: area.width,
-        height: area.height.saturating_sub(y_offset),
+        height: content_height.min(area.height.saturating_sub(y_offset)),
     };
 
     frame.render_widget(
@@ -155,8 +276,8 @@ fn render_figlet_clock(frame: &mut Frame, area: Rect, time_str: &str, style: Fon
     );
 }
 
-fn render_plain_fallback(frame: &mut Frame, area: Rect, time_str: &str) {
-    let line = Line::styled(time_str, Style::default().fg(Color::Cyan));
+fn render_plain_fallback(frame: &mut Frame, area: Rect, time_str: &str, color: Color) {
+    let line = Line::styled(time_str, Style::default().fg(color));
     frame.render_widget(
         Paragraph::new(line).alignment(Alignment::Center),
         area,

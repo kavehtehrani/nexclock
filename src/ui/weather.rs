@@ -1,38 +1,42 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
 };
 
+use crate::app::ResolvedTheme;
 use crate::data::weather_api::WeatherData;
 use crate::ui;
 
-/// Renders the weather display panel.
-pub fn render(frame: &mut Frame, area: Rect, weather: &Option<WeatherData>, is_focused: bool) {
-    let block = ui::panel_block("Weather", is_focused);
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    weather: &Option<WeatherData>,
+    is_focused: bool,
+    is_editing: bool,
+    theme: &ResolvedTheme,
+) {
+    let block = ui::panel_block("Weather", is_focused, is_editing, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     let lines = match weather {
         Some(data) => {
-            let mut lines = vec![
-                Line::from(Span::styled(
-                    format!("{:.1}°{} - {}", data.temperature, data.unit, data.description),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )),
-            ];
+            let mut lines = vec![Line::from(Span::styled(
+                format!("{:.1}°{} - {}", data.temperature, data.unit, data.description),
+                Style::default()
+                    .fg(theme.secondary)
+                    .add_modifier(Modifier::BOLD),
+            ))];
 
-            // Humidity + precipitation probability on a second line
             let mut detail_spans = Vec::new();
 
             if let Some(humidity) = data.humidity {
                 detail_spans.push(Span::styled(
                     format!("Humidity: {humidity}%"),
-                    Style::default().fg(Color::Cyan),
+                    Style::default().fg(theme.primary),
                 ));
             }
 
@@ -42,7 +46,7 @@ pub fn render(frame: &mut Frame, area: Rect, weather: &Option<WeatherData>, is_f
                 }
                 detail_spans.push(Span::styled(
                     format!("Rain: {precip}%"),
-                    Style::default().fg(Color::Blue),
+                    Style::default().fg(theme.info),
                 ));
             }
 
@@ -55,7 +59,7 @@ pub fn render(frame: &mut Frame, area: Rect, weather: &Option<WeatherData>, is_f
         None => {
             vec![Line::from(Span::styled(
                 "Loading...",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.muted),
             ))]
         }
     };
@@ -63,7 +67,6 @@ pub fn render(frame: &mut Frame, area: Rect, weather: &Option<WeatherData>, is_f
     let content_height = lines.len() as u16;
     let paragraph = Paragraph::new(lines).alignment(Alignment::Center);
 
-    // Vertically center
     let y_offset = inner.height.saturating_sub(content_height) / 2;
     let centered = Rect {
         x: inner.x,

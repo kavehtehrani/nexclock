@@ -1,4 +1,5 @@
 mod app;
+mod component;
 mod config;
 mod constants;
 mod data;
@@ -19,50 +20,35 @@ use tracing::info;
 
 use app::App;
 use config::AppConfig;
-use data::system;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    // Load config before anything else (logging not yet available, so warnings go to stderr)
     let config = AppConfig::load();
 
-    // Set up file logging
     let _guard = init_logging();
 
     info!("nexclock starting");
 
-    // Set up a panic hook that restores the terminal before printing the panic.
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         let _ = restore_terminal();
         original_hook(panic_info);
     }));
 
-    // Initialize terminal with mouse support
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Set up watch channels for async data
-    let (weather_tx, weather_rx) = watch::channel(None);
+    // IP is global (not per-component), so we set it up here
     let (ip_tx, ip_rx) = watch::channel(None);
-    let (stats_tx, stats_rx) = watch::channel(system::read_system_stats());
-
-    // Spawn background tasks
-    if config.weather.enabled {
-        app::spawn_weather_task(weather_tx, &config);
-    }
     app::spawn_ip_task(ip_tx, &config);
-    if config.system_stats.enabled {
-        app::spawn_stats_task(stats_tx, &config);
-    }
 
-    let mut app = App::new(config, weather_rx, ip_rx, stats_rx);
+    // App::new() handles spawning per-component background tasks
+    let mut app = App::new(config, ip_rx);
     let tick_rate = app.config.tick_rate();
 
-    // Run the main loop with signal handling
     let result = tokio::select! {
         res = async { run_app(&mut terminal, &mut app, tick_rate) } => res,
         _ = tokio::signal::ctrl_c() => {
@@ -71,10 +57,8 @@ async fn main() -> io::Result<()> {
         }
     };
 
-    // Persist runtime state (font, visibility, layout) before restoring terminal
     app.persist_state();
 
-    // Restore terminal
     restore_terminal()?;
 
     info!("nexclock exiting");
@@ -100,8 +84,6 @@ fn run_app(
     Ok(())
 }
 
-/// Initializes tracing with file logging to ~/.local/share/nexclock/nexclock.log.
-/// Returns a guard that must be held for the lifetime of the program.
 fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let data_dir = AppConfig::data_dir()?;
     std::fs::create_dir_all(&data_dir).ok()?;

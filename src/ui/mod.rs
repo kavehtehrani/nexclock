@@ -1,6 +1,6 @@
 pub mod calendar;
 pub mod clock;
-pub mod secondary_clock;
+pub mod grid;
 pub mod status_bar;
 pub mod system_stats;
 pub mod weather;
@@ -13,31 +13,50 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, PanelId, UiMode};
-use crate::config::Slot;
-use crate::constants::{self, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, STATUS_BAR_HEIGHT};
+use tracing::debug;
+
+use crate::app::{App, ComponentRuntime, FontStyle, ResolvedTheme, UiMode};
+use crate::component::{ClockStyle, ComponentConfig, ComponentType};
+use crate::constants::{MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, STATUS_BAR_HEIGHT};
+use crate::data::weather_api::WeatherData;
 
 /// Returns a bordered block with the given title, highlighted if focused.
-pub fn panel_block(title: &str, is_focused: bool) -> Block<'_> {
-    let border_style = if is_focused {
-        Style::default().fg(constants::FOCUS_BORDER_COLOR)
+/// In edit mode the border uses a distinct style to indicate the active editing state.
+pub fn panel_block<'a>(
+    title: &str,
+    is_focused: bool,
+    is_editing: bool,
+    theme: &ResolvedTheme,
+) -> Block<'a> {
+    let border_style = if is_editing {
+        Style::default()
+            .fg(theme.secondary)
+            .add_modifier(Modifier::BOLD)
+    } else if is_focused {
+        Style::default().fg(theme.focus)
     } else {
         Style::default()
     };
-    Block::bordered()
-        .title(format!(" {title} "))
-        .border_style(border_style)
+
+    if is_editing {
+        Block::bordered()
+            .title(format!(" {title} [EDIT] "))
+            .border_style(border_style)
+    } else {
+        Block::bordered()
+            .title(format!(" {title} "))
+            .border_style(border_style)
+    }
 }
 
 /// Root draw function: composes the full UI layout.
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
-    // Guard: if terminal is too small, show a message instead of panicking
     if area.width < MIN_TERMINAL_WIDTH || area.height < MIN_TERMINAL_HEIGHT {
         let msg = Line::styled(
             "Terminal too small",
-            Style::default().fg(Color::Red),
+            Style::default().fg(app.theme.error),
         );
         frame.render_widget(
             Paragraph::new(msg).alignment(Alignment::Center),
@@ -46,182 +65,208 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         return;
     }
 
-    let layout = &app.config.layout;
-
-    // Main vertical split: top row | bottom grid | status bar
+    // Split into content area + status bar
     let rows = Layout::vertical([
-        Constraint::Percentage(layout.top_height_percent),
-        Constraint::Percentage(layout.bottom_height_percent),
+        Constraint::Min(1),
         Constraint::Length(STATUS_BAR_HEIGHT),
     ])
     .split(area);
 
-    // Bottom grid: left and right columns
-    let columns = Layout::horizontal([
-        Constraint::Percentage(layout.left_column_percent),
-        Constraint::Percentage(100 - layout.left_column_percent),
-    ])
-    .split(rows[1]);
+    let content_area = rows[0];
+    let status_area = rows[1];
 
-    // Left column split
-    let left_panels = Layout::vertical([
-        Constraint::Percentage(layout.left_split_percent),
-        Constraint::Percentage(100 - layout.left_split_percent),
-    ])
-    .split(columns[0]);
+    // Compute grid cells
+    let cells = grid::compute_grid(content_area, &app.config.grid);
 
-    // Right column split
-    let right_panels = Layout::vertical([
-        Constraint::Percentage(layout.right_split_percent),
-        Constraint::Percentage(100 - layout.right_split_percent),
-    ])
-    .split(columns[1]);
+    // Get visible component indices and which one is focused
+    let visible = app.visible_components();
+    let focused_comp_idx = visible.get(app.focused_index).copied();
 
-    // Map slots to computed areas
-    let slot_areas: [(Slot, Rect); 5] = [
-        (Slot::Top, rows[0]),
-        (Slot::LeftTop, left_panels[0]),
-        (Slot::LeftBottom, left_panels[1]),
-        (Slot::RightTop, right_panels[0]),
-        (Slot::RightBottom, right_panels[1]),
-    ];
+    let is_edit_mode = app.ui_mode == UiMode::EditMode;
 
-    // Render each slot and track where the Clock panel ends up
-    for &(slot, area) in &slot_areas {
-        let panel = render_panel(frame, area, app, slot);
-        if panel == PanelId::Clock {
-            app.clock_area = area;
+    // Render each visible component
+    for &ci in &visible {
+        let entry = &app.components[ci];
+        let is_focused = Some(ci) == focused_comp_idx;
+        let is_editing = is_focused && is_edit_mode;
+
+        let Some(cell_rect) = grid::merged_rect(&cells, &entry.placement) else {
+            continue;
+        };
+
+        debug!(
+            id = %entry.id,
+            row = entry.placement.row,
+            col = entry.placement.column,
+            row_span = entry.placement.row_span,
+            col_span = entry.placement.col_span,
+            x = cell_rect.x,
+            y = cell_rect.y,
+            w = cell_rect.width,
+            h = cell_rect.height,
+            "component cell_rect"
+        );
+
+        // Store the rendered area in runtime
+        if let Some(rt) = app.runtime.get_mut(&entry.id) {
+            rt.set_area(cell_rect);
         }
+
+        render_component(frame, cell_rect, app, ci, is_focused, is_editing);
     }
 
     // Status bar
-    status_bar::render(frame, rows[2], &app.external_ip(), app.font_style);
+    let ip = app.external_ip();
+    let font_name = app.active_font_name();
+    status_bar::render(frame, status_area, &ip, font_name, is_edit_mode, &app.theme);
 
-    // Overlays (drawn last, on top of everything)
+    // Overlays
     match app.ui_mode {
-        UiMode::Help => render_help(frame, area),
+        UiMode::Help => render_help(frame, area, &app.theme),
         UiMode::ContextMenu => render_context_menu(frame, app, area),
         UiMode::VisibilityMenu => render_visibility_menu(frame, app, area),
-        UiMode::Normal => {}
+        UiMode::AddComponentMenu => render_add_menu(frame, app, area),
+        UiMode::Normal | UiMode::EditMode => {}
     }
 }
 
-/// Renders whichever panel is assigned to the given slot. Returns the PanelId rendered.
-fn render_panel(frame: &mut Frame, area: Rect, app: &App, slot: Slot) -> PanelId {
-    let panel = PanelId::from_name(app.config.layout.panel_at(slot));
-    let focused = app.focused_panel == panel;
+/// Dispatches rendering to the appropriate component renderer.
+fn render_component(frame: &mut Frame, area: Rect, app: &App, idx: usize, is_focused: bool, is_editing: bool) {
+    let entry = &app.components[idx];
+    let theme = &app.theme;
 
-    if !app.is_panel_visible(panel) {
-        return panel;
-    }
+    match &entry.config {
+        ComponentConfig::Clock(settings) => {
+            let font_style = if let Some(ComponentRuntime::Clock { font_style, .. }) =
+                app.runtime.get(&entry.id)
+            {
+                *font_style
+            } else {
+                FontStyle::Standard
+            };
 
-    match panel {
-        PanelId::Clock => {
             clock::render(
                 frame,
                 area,
-                &app.config.clock,
-                app.colon_visible(),
-                app.font_style,
-                focused,
+                settings,
+                app.tick_count,
+                font_style,
+                is_focused,
+                is_editing,
+                theme,
             );
         }
-        PanelId::SecondaryClock => {
-            secondary_clock::render(frame, area, &app.config.secondary_clock, focused);
+        ComponentConfig::Weather(_) => {
+            let data: Option<WeatherData> =
+                if let Some(ComponentRuntime::Weather { data_rx, .. }) =
+                    app.runtime.get(&entry.id)
+                {
+                    data_rx.borrow().clone()
+                } else {
+                    None
+                };
+            weather::render(frame, area, &data, is_focused, is_editing, theme);
         }
-        PanelId::Weather => {
-            weather::render(frame, area, &app.weather(), focused);
+        ComponentConfig::Calendar(_) => {
+            calendar::render(frame, area, is_focused, is_editing, theme);
         }
-        PanelId::Calendar => {
-            calendar::render(frame, area, focused);
-        }
-        PanelId::SystemStats => {
-            system_stats::render(frame, area, &app.system_stats(), focused);
+        ComponentConfig::SystemStats(_) => {
+            let stats = if let Some(ComponentRuntime::SystemStats { stats_rx, .. }) =
+                app.runtime.get(&entry.id)
+            {
+                stats_rx.borrow().clone()
+            } else {
+                crate::data::system::read_system_stats()
+            };
+            system_stats::render(frame, area, &stats, is_focused, is_editing, theme);
         }
     }
-
-    panel
 }
 
-/// Renders a centered help overlay with keyboard shortcuts.
-fn render_help(frame: &mut Frame, area: Rect) {
+// ── Overlays ────────────────────────────────────────────────────────
+
+fn render_help(frame: &mut Frame, area: Rect, theme: &ResolvedTheme) {
     let help_lines = vec![
         Line::from(Span::styled(
             " Keyboard Shortcuts ",
             Style::default()
-                .fg(Color::Yellow)
+                .fg(theme.secondary)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        shortcut_line("Tab", "Next panel"),
-        shortcut_line("Shift+Tab", "Previous panel"),
-        shortcut_line("Space", "Panel context menu"),
-        shortcut_line("v", "Visibility menu"),
-        shortcut_line("h / ?", "Toggle this help"),
-        shortcut_line("q / Esc", "Quit"),
-        shortcut_line("t", "Toggle 12h / 24h"),
-        shortcut_line("f / Right", "Next font style"),
-        shortcut_line("F / Left", "Previous font style"),
+        shortcut_line("Tab", "Next panel", theme),
+        shortcut_line("Shift+Tab", "Previous panel", theme),
+        shortcut_line("Arrow keys", "Spatial navigation", theme),
+        shortcut_line("Space", "Panel context menu", theme),
+        shortcut_line("e", "Edit mode (resize/move)", theme),
+        shortcut_line("a", "Add component", theme),
+        shortcut_line("v", "Visibility menu", theme),
+        shortcut_line("h / ?", "Toggle this help", theme),
+        shortcut_line("q / Esc", "Quit", theme),
+        shortcut_line("t", "Toggle 12h / 24h", theme),
+        shortcut_line("f", "Next font style", theme),
+        shortcut_line("F", "Previous font style", theme),
         Line::from(""),
         Line::from(Span::styled(
-            " Mouse ",
+            " Edit Mode ",
             Style::default()
-                .fg(Color::Yellow)
+                .fg(theme.secondary)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
-        shortcut_line("Click clock", "Toggle 12h / 24h"),
+        shortcut_line("Arrows", "Resize panel", theme),
+        shortcut_line("Shift+Arrows", "Move panel", theme),
+        shortcut_line("Esc / e", "Exit edit mode", theme),
         Line::from(""),
         Line::from(Span::styled(
             " Press any key to close ",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.muted),
         )),
     ];
 
-    render_popup(frame, area, " Help ", &help_lines, 40);
+    render_popup(frame, area, " Help ", &help_lines, 42);
 }
 
-/// Renders the context menu popup anchored near the center.
 fn render_context_menu(frame: &mut Frame, app: &App, area: Rect) {
     let cursor = app.menu_cursor;
     let items = &app.context_menu_items;
+    let theme = &app.theme;
 
     let mut lines: Vec<Line> = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
         let style = if i == cursor {
             Style::default()
                 .fg(Color::Black)
-                .bg(Color::Cyan)
+                .bg(theme.primary)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(theme.text)
         };
         lines.push(Line::styled(format!(" {} ", item.label), style));
     }
 
-    let title = format!("{} ", app.focused_panel.label());
+    let title = app
+        .focused_component()
+        .map(|c| c.config.component_type().label().to_string())
+        .unwrap_or_else(|| "Menu".to_string());
     render_popup(frame, area, &title, &lines, 35);
 }
 
-/// Renders the visibility menu as a centered overlay.
 fn render_visibility_menu(frame: &mut Frame, app: &App, area: Rect) {
     let cursor = app.menu_cursor;
+    let theme = &app.theme;
 
-    let mut lines: Vec<Line> = Vec::with_capacity(PanelId::ALL.len());
-    for (i, &panel) in PanelId::ALL.iter().enumerate() {
-        let checked = if app.is_panel_visible(panel) {
-            "x"
-        } else {
-            " "
-        };
-        let label = format!(" [{checked}] {} ", panel.label());
+    let mut lines: Vec<Line> = Vec::with_capacity(app.components.len());
+    for (i, comp) in app.components.iter().enumerate() {
+        let checked = if comp.visible { "x" } else { " " };
+        let type_label = comp.config.component_type().label();
+        let label = format!(" [{checked}] {} ({}) ", comp.id, type_label);
         let style = if i == cursor {
             Style::default()
                 .fg(Color::Black)
-                .bg(Color::Cyan)
+                .bg(theme.primary)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(theme.text)
         };
         lines.push(Line::styled(label, style));
     }
@@ -229,16 +274,53 @@ fn render_visibility_menu(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         " Esc to close ",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme.muted),
     )));
 
-    render_popup(frame, area, " Panels ", &lines, 30);
+    render_popup(frame, area, " Components ", &lines, 40);
 }
 
-/// Renders a centered popup with a title, content lines, and a given width.
+fn render_add_menu(frame: &mut Frame, app: &App, area: Rect) {
+    let cursor = app.menu_cursor;
+    let theme = &app.theme;
+
+    let options = add_menu_options();
+    let mut lines: Vec<Line> = Vec::with_capacity(options.len());
+    for (i, (label, _, _)) in options.iter().enumerate() {
+        let style = if i == cursor {
+            Style::default()
+                .fg(Color::Black)
+                .bg(theme.primary)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text)
+        };
+        lines.push(Line::styled(format!(" {label} "), style));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Esc to cancel ",
+        Style::default().fg(theme.muted),
+    )));
+
+    render_popup(frame, area, " Add Component ", &lines, 30);
+}
+
+/// Returns the list of add-menu options: (label, ComponentType, Option<ClockStyle>).
+pub fn add_menu_options() -> Vec<(&'static str, ComponentType, Option<ClockStyle>)> {
+    vec![
+        ("Clock (Large)", ComponentType::Clock, Some(ClockStyle::Large)),
+        ("Clock (Compact)", ComponentType::Clock, Some(ClockStyle::Compact)),
+        ("Weather", ComponentType::Weather, None),
+        ("Calendar", ComponentType::Calendar, None),
+        ("System Stats", ComponentType::SystemStats, None),
+    ]
+}
+
 fn render_popup(frame: &mut Frame, area: Rect, title: &str, lines: &[Line], width: u16) {
     let popup_width = width.min(area.width);
-    let popup_height = (lines.len() as u16 + 2).min(area.height); // +2 for border
+    let popup_height = (lines.len() as u16 + 2).min(area.height);
 
     let x = area.x + area.width.saturating_sub(popup_width) / 2;
     let y = area.y + area.height.saturating_sub(popup_height) / 2;
@@ -263,15 +345,15 @@ fn render_popup(frame: &mut Frame, area: Rect, title: &str, lines: &[Line], widt
     );
 }
 
-fn shortcut_line<'a>(key: &'a str, desc: &'a str) -> Line<'a> {
+fn shortcut_line<'a>(key: &'a str, desc: &'a str, theme: &ResolvedTheme) -> Line<'a> {
     Line::from(vec![
         Span::styled(
             format!("{key:>14}"),
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme.primary)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(desc, Style::default().fg(Color::White)),
+        Span::styled(desc, Style::default().fg(theme.text)),
     ])
 }
