@@ -83,6 +83,8 @@ pub enum MenuAction {
     ToggleSeconds,
     ToggleBlink,
     CycleDateFormat,
+    ToggleSecondaryTimeFormat,
+    CycleSecondaryDateFormat,
     /// Adjust a layout percentage. `grow = true` increases, `false` decreases.
     /// ClockHeight is special: it inversely adjusts info_height_percent.
     AdjustLayout(LayoutField, bool),
@@ -235,14 +237,20 @@ impl App {
     }
 
     pub fn cycle_date_format(&mut self) {
-        let presets = constants::DATE_FORMAT_PRESETS;
-        let current = &self.config.clock.date_format;
-        let idx = presets.iter().position(|&p| p == current);
-        let next_idx = match idx {
-            Some(i) => (i + 1) % presets.len(),
-            None => 0,
-        };
-        self.config.clock.date_format = presets[next_idx].to_string();
+        self.config.clock.date_format = next_date_preset(&self.config.clock.date_format);
+    }
+
+    pub fn toggle_secondary_time_format(&mut self) {
+        if self.config.secondary_clock.time_format == "24h" {
+            self.config.secondary_clock.time_format = "12h".to_string();
+        } else {
+            self.config.secondary_clock.time_format = "24h".to_string();
+        }
+    }
+
+    pub fn cycle_secondary_date_format(&mut self) {
+        self.config.secondary_clock.date_format =
+            next_date_preset(&self.config.secondary_clock.date_format);
     }
 
     pub fn toggle_time_format(&mut self) {
@@ -342,6 +350,17 @@ impl App {
                 action: MenuAction::Hide(panel),
             });
 
+            if panel == PanelId::SecondaryClock {
+                items.push(ContextMenuItem {
+                    label: "Toggle 12h/24h".into(),
+                    action: MenuAction::ToggleSecondaryTimeFormat,
+                });
+                items.push(ContextMenuItem {
+                    label: "Cycle date format".into(),
+                    action: MenuAction::CycleSecondaryDateFormat,
+                });
+            }
+
             // Row resize: top panels grow the field directly, bottom panels invert
             if let Some(field) = panel.row_field() {
                 let grow_means_taller = panel.is_top();
@@ -383,6 +402,8 @@ impl App {
             }
             MenuAction::ToggleTimeFormat => self.toggle_time_format(),
             MenuAction::CycleDateFormat => self.cycle_date_format(),
+            MenuAction::ToggleSecondaryTimeFormat => self.toggle_secondary_time_format(),
+            MenuAction::CycleSecondaryDateFormat => self.cycle_secondary_date_format(),
             MenuAction::ToggleSeconds => {
                 self.config.clock.show_seconds = !self.config.clock.show_seconds;
             }
@@ -461,6 +482,18 @@ impl App {
             warn!("Failed to persist config on exit: {err}");
         }
     }
+}
+
+/// Cycles to the next date format preset, resetting to the first if the current
+/// value isn't in the preset list.
+fn next_date_preset(current: &str) -> String {
+    let presets = constants::DATE_FORMAT_PRESETS;
+    let idx = presets.iter().position(|&p| p == current);
+    let next_idx = match idx {
+        Some(i) => (i + 1) % presets.len(),
+        None => 0,
+    };
+    presets[next_idx].to_string()
 }
 
 /// Spawns the background weather fetch loop.

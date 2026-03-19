@@ -48,6 +48,8 @@ pub struct SecondaryClockConfig {
     pub timezone: String,
     #[serde(default = "default_secondary_label")]
     pub label: String,
+    #[serde(default = "default_time_format")]
+    pub time_format: String,
     #[serde(default = "default_secondary_date_format")]
     pub date_format: String,
 }
@@ -147,6 +149,7 @@ impl Default for SecondaryClockConfig {
             enabled: true,
             timezone: default_secondary_timezone(),
             label: default_secondary_label(),
+            time_format: default_time_format(),
             date_format: default_secondary_date_format(),
         }
     }
