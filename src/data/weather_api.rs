@@ -10,17 +10,31 @@ pub struct WeatherData {
     pub temperature: f64,
     pub unit: String,
     pub description: String,
+    pub humidity: Option<u32>,
+    pub precipitation_probability: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenMeteoResponse {
     current: CurrentWeather,
+    #[serde(default)]
+    hourly: Option<HourlyWeather>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CurrentWeather {
     temperature_2m: f64,
     weather_code: u32,
+    #[serde(default)]
+    relative_humidity_2m: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HourlyWeather {
+    #[serde(default)]
+    time: Vec<String>,
+    #[serde(default)]
+    precipitation_probability: Vec<u32>,
 }
 
 /// Fetches current weather from Open-Meteo.
@@ -37,7 +51,9 @@ pub async fn fetch_weather(
 
     let url = format!(
         "{OPEN_METEO_API_URL}?latitude={latitude}&longitude={longitude}\
-         &current=temperature_2m,weather_code\
+         &current=temperature_2m,weather_code,relative_humidity_2m\
+         &hourly=precipitation_probability\
+         &forecast_days=1\
          &temperature_unit={temp_unit}"
     );
 
@@ -50,11 +66,24 @@ pub async fn fetch_weather(
         "C"
     };
 
+    // Extract current hour's precipitation probability from hourly data
+    let precip_prob = extract_current_hour_precip(&data.hourly);
+
     Ok(WeatherData {
         temperature: data.current.temperature_2m,
         unit: unit_symbol.to_string(),
         description: wmo_code_to_description(data.current.weather_code),
+        humidity: data.current.relative_humidity_2m,
+        precipitation_probability: precip_prob,
     })
+}
+
+/// Finds the precipitation probability for the current hour from hourly data.
+fn extract_current_hour_precip(hourly: &Option<HourlyWeather>) -> Option<u32> {
+    let hourly = hourly.as_ref()?;
+    let now = chrono::Local::now().format("%Y-%m-%dT%H:00").to_string();
+    let idx = hourly.time.iter().position(|t| t == &now)?;
+    hourly.precipitation_probability.get(idx).copied()
 }
 
 /// Maps WMO weather interpretation codes to human-readable descriptions.

@@ -96,6 +96,8 @@ pub struct SystemStatsConfig {
 pub struct AppearanceConfig {
     #[serde(default = "default_tick_rate")]
     pub tick_rate_ms: u64,
+    #[serde(default = "default_font_style")]
+    pub font_style: String,
 }
 
 // Default value functions for serde
@@ -113,6 +115,7 @@ fn default_temp_unit() -> String { constants::DEFAULT_TEMP_UNIT.to_string() }
 fn default_weather_refresh() -> u64 { constants::DEFAULT_WEATHER_REFRESH_MINUTES }
 fn default_stats_refresh() -> u64 { constants::DEFAULT_STATS_REFRESH_SECONDS }
 fn default_tick_rate() -> u64 { constants::DEFAULT_TICK_RATE.as_millis() as u64 }
+fn default_font_style() -> String { constants::DEFAULT_FONT_STYLE.to_string() }
 
 
 impl Default for ClockConfig {
@@ -186,6 +189,7 @@ impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
             tick_rate_ms: default_tick_rate(),
+            font_style: default_font_style(),
         }
     }
 }
@@ -245,7 +249,7 @@ impl AppConfig {
     }
 
     /// Writes the current config to disk.
-    fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let path = Self::config_path().ok_or("Could not determine config path")?;
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;

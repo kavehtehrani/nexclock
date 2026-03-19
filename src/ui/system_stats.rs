@@ -2,15 +2,16 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use crate::data::system::SystemStats;
+use crate::ui;
 
 /// Renders the system stats panel.
-pub fn render(frame: &mut Frame, area: Rect, stats: &SystemStats) {
-    let block = Block::bordered().title(" System ");
+pub fn render(frame: &mut Frame, area: Rect, stats: &SystemStats, is_focused: bool) {
+    let block = ui::panel_block("System", is_focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

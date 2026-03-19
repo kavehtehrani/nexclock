@@ -4,15 +4,16 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use crate::config::SecondaryClockConfig;
+use crate::ui;
 
 /// Renders the secondary timezone clock panel.
-pub fn render(frame: &mut Frame, area: Rect, config: &SecondaryClockConfig) {
-    let block = Block::bordered().title(format!(" {} ", config.label));
+pub fn render(frame: &mut Frame, area: Rect, config: &SecondaryClockConfig, is_focused: bool) {
+    let block = ui::panel_block(&config.label, is_focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

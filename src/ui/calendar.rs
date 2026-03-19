@@ -3,23 +3,22 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
+
+use crate::ui;
 
 const DAYS_HEADER: &str = "Mo Tu We Th Fr Sa Su";
 
 /// Renders a Gregorian calendar panel showing the current month with today highlighted.
-pub fn render(frame: &mut Frame, area: Rect) {
+pub fn render(frame: &mut Frame, area: Rect, is_focused: bool) {
     let today = Local::now().date_naive();
     let year = today.year();
     let month = today.month();
 
-    let block = Block::bordered().title(format!(
-        " {} {} ",
-        month_name(month),
-        year
-    ));
+    let title = format!("{} {}", month_name(month), year);
+    let block = ui::panel_block(&title, is_focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

@@ -9,6 +9,7 @@ mod ui;
 use std::io;
 
 use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -37,10 +38,10 @@ async fn main() -> io::Result<()> {
         original_hook(panic_info);
     }));
 
-    // Initialize terminal
+    // Initialize terminal with mouse support
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -58,7 +59,6 @@ async fn main() -> io::Result<()> {
         app::spawn_stats_task(stats_tx, &config);
     }
 
-    // Spawn signal handler
     let mut app = App::new(config, weather_rx, ip_rx, stats_rx);
     let tick_rate = app.config.tick_rate();
 
@@ -70,6 +70,9 @@ async fn main() -> io::Result<()> {
             Ok(())
         }
     };
+
+    // Persist runtime state (font, visibility, layout) before restoring terminal
+    app.persist_state();
 
     // Restore terminal
     restore_terminal()?;
@@ -120,6 +123,6 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 
 fn restore_terminal() -> io::Result<()> {
     disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
     Ok(())
 }
