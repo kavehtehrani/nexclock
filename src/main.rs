@@ -17,6 +17,7 @@ use tokio::sync::watch;
 
 use app::App;
 use config::AppConfig;
+use data::system;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -40,15 +41,19 @@ async fn main() -> io::Result<()> {
     // Set up watch channels for async data
     let (weather_tx, weather_rx) = watch::channel(None);
     let (ip_tx, ip_rx) = watch::channel(None);
+    let (stats_tx, stats_rx) = watch::channel(system::read_system_stats());
 
     // Spawn background tasks
     if config.weather.enabled {
         app::spawn_weather_task(weather_tx, &config);
     }
     app::spawn_ip_task(ip_tx, &config);
+    if config.system_stats.enabled {
+        app::spawn_stats_task(stats_tx, &config);
+    }
 
     // Run the app
-    let result = run_app(&mut terminal, config, weather_rx, ip_rx);
+    let result = run_app(&mut terminal, config, weather_rx, ip_rx, stats_rx);
 
     // Restore terminal
     restore_terminal()?;
@@ -66,8 +71,9 @@ fn run_app(
     config: AppConfig,
     weather_rx: watch::Receiver<Option<data::weather_api::WeatherData>>,
     ip_rx: watch::Receiver<Option<String>>,
+    stats_rx: watch::Receiver<data::system::SystemStats>,
 ) -> io::Result<()> {
-    let mut app = App::new(config, weather_rx, ip_rx);
+    let mut app = App::new(config, weather_rx, ip_rx, stats_rx);
     let tick_rate = app.config.tick_rate();
 
     while app.running {

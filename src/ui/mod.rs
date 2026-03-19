@@ -2,6 +2,7 @@ pub mod calendar;
 pub mod clock;
 pub mod secondary_clock;
 pub mod status_bar;
+pub mod system_stats;
 pub mod weather;
 
 use ratatui::{
@@ -26,7 +27,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     .split(area);
 
     // Clock panel
-    clock::render(frame, rows[0], &config.clock);
+    clock::render(frame, rows[0], &config.clock, app.colon_visible());
 
     // Info panels: split into left and right columns
     let columns = Layout::horizontal([
@@ -50,9 +51,19 @@ pub fn draw(frame: &mut Frame, app: &App) {
         weather::render(frame, left_panels[1], &app.weather());
     }
 
-    // Right column: Gregorian calendar
+    // Right column: calendar (top) + system stats (bottom)
+    let right_panels = Layout::vertical([
+        Constraint::Percentage(60),
+        Constraint::Percentage(40),
+    ])
+    .split(columns[1]);
+
     if config.calendar.show_gregorian {
-        calendar::render(frame, columns[1]);
+        calendar::render(frame, right_panels[0]);
+    }
+
+    if config.system_stats.enabled {
+        system_stats::render(frame, right_panels[1], &app.system_stats());
     }
 
     // Status bar

@@ -11,6 +11,8 @@ use tui_big_text::{BigText, PixelSize};
 use crate::config::ClockConfig;
 use crate::constants::{PIXEL_SIZE_FULL_MIN_HEIGHT, PIXEL_SIZE_HALF_MIN_HEIGHT};
 
+const BLINK_REPLACEMENT: char = ' ';
+
 /// Selects the best pixel size for the available area height.
 fn select_pixel_size(available_height: u16) -> PixelSize {
     if available_height >= PIXEL_SIZE_FULL_MIN_HEIGHT {
@@ -22,15 +24,21 @@ fn select_pixel_size(available_height: u16) -> PixelSize {
     }
 }
 
-/// Formats the current time string based on config.
-fn format_time(config: &ClockConfig) -> String {
+/// Formats the current time string based on config, with optional colon blinking.
+fn format_time(config: &ClockConfig, colon_visible: bool) -> String {
     let now = Local::now();
     let use_24h = config.time_format == "24h";
-    match (use_24h, config.show_seconds) {
+    let time_str = match (use_24h, config.show_seconds) {
         (true, true) => now.format("%H:%M:%S").to_string(),
         (true, false) => now.format("%H:%M").to_string(),
         (false, true) => now.format("%I:%M:%S %p").to_string(),
         (false, false) => now.format("%I:%M %p").to_string(),
+    };
+
+    if !colon_visible {
+        time_str.replace(':', &BLINK_REPLACEMENT.to_string())
+    } else {
+        time_str
     }
 }
 
@@ -57,7 +65,7 @@ fn local_timezone_name() -> String {
 }
 
 /// Renders the main clock widget into the given area.
-pub fn render(frame: &mut Frame, area: Rect, config: &ClockConfig) {
+pub fn render(frame: &mut Frame, area: Rect, config: &ClockConfig, colon_visible: bool) {
     let tz_name = local_timezone_name();
     let block = Block::bordered().title(format!(" {tz_name} "));
     let inner = block.inner(area);
@@ -71,7 +79,7 @@ pub fn render(frame: &mut Frame, area: Rect, config: &ClockConfig) {
     .split(inner);
 
     let pixel_size = select_pixel_size(chunks[0].height);
-    let time_str = format_time(config);
+    let time_str = format_time(config, colon_visible);
 
     let big_text = BigText::builder()
         .pixel_size(pixel_size)

@@ -241,11 +241,6 @@ impl AppConfig {
         Ok(())
     }
 
-    /// Whether the clock uses 24-hour format.
-    pub fn is_24h(&self) -> bool {
-        self.clock.time_format == "24h"
-    }
-
     /// Returns the tick rate as a Duration.
     pub fn tick_rate(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.appearance.tick_rate_ms)

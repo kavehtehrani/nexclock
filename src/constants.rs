@@ -5,7 +5,6 @@ pub const DEFAULT_TICK_RATE: Duration = Duration::from_millis(250);
 
 // Clock display
 pub const DEFAULT_TIME_FORMAT: &str = "24h";
-pub const DEFAULT_BLINK_SEPARATOR: bool = true;
 
 // Secondary clock
 pub const DEFAULT_SECONDARY_TIMEZONE: &str = "US/Eastern";
