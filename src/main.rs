@@ -1,6 +1,8 @@
 mod app;
 mod config;
 mod constants;
+mod data;
+mod error;
 mod event;
 mod ui;
 
@@ -11,11 +13,13 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
+use tokio::sync::watch;
 
 use app::App;
 use config::AppConfig;
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     // Load config before entering raw mode so warnings print normally
     let config = AppConfig::load();
 
@@ -33,8 +37,18 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // Set up watch channels for async data
+    let (weather_tx, weather_rx) = watch::channel(None);
+    let (ip_tx, ip_rx) = watch::channel(None);
+
+    // Spawn background tasks
+    if config.weather.enabled {
+        app::spawn_weather_task(weather_tx, &config);
+    }
+    app::spawn_ip_task(ip_tx, &config);
+
     // Run the app
-    let result = run_app(&mut terminal, config);
+    let result = run_app(&mut terminal, config, weather_rx, ip_rx);
 
     // Restore terminal
     restore_terminal()?;
@@ -50,8 +64,10 @@ fn main() -> io::Result<()> {
 fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     config: AppConfig,
+    weather_rx: watch::Receiver<Option<data::weather_api::WeatherData>>,
+    ip_rx: watch::Receiver<Option<String>>,
 ) -> io::Result<()> {
-    let mut app = App::new(config);
+    let mut app = App::new(config, weather_rx, ip_rx);
     let tick_rate = app.config.tick_rate();
 
     while app.running {
