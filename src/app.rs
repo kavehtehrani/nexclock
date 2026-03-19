@@ -1,4 +1,5 @@
 use tokio::sync::watch;
+use tracing::error;
 
 use crate::config::AppConfig;
 use crate::data::system::{self, SystemStats};
@@ -57,7 +58,6 @@ impl App {
         if !self.config.clock.blink_separator {
             return true;
         }
-        // Blink every other tick (with default 250ms tick, that's 500ms on/off)
         self.tick_count.is_multiple_of(2)
     }
 }
@@ -76,7 +76,7 @@ pub fn spawn_weather_task(tx: watch::Sender<Option<WeatherData>>, config: &AppCo
                     let _ = tx.send(Some(data));
                 }
                 Err(err) => {
-                    eprintln!("Weather fetch error: {err}");
+                    error!("Weather fetch failed: {err}");
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(interval_mins * 60)).await;
@@ -95,7 +95,7 @@ pub fn spawn_ip_task(tx: watch::Sender<Option<String>>, config: &AppConfig) {
                     let _ = tx.send(Some(ip_addr));
                 }
                 Err(err) => {
-                    eprintln!("IP fetch error: {err}");
+                    error!("IP fetch failed: {err}");
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(interval_mins * 60)).await;

@@ -2,6 +2,7 @@ use std::time::Duration;
 
 // Tick / refresh rates
 pub const DEFAULT_TICK_RATE: Duration = Duration::from_millis(250);
+pub const MIN_TICK_RATE_MS: u64 = 50;
 
 // Clock display
 pub const DEFAULT_TIME_FORMAT: &str = "24h";
@@ -19,6 +20,10 @@ pub const STATUS_BAR_HEIGHT: u16 = 3;
 // tui-big-text pixel size thresholds (minimum height in rows)
 pub const PIXEL_SIZE_FULL_MIN_HEIGHT: u16 = 8;
 pub const PIXEL_SIZE_HALF_MIN_HEIGHT: u16 = 4;
+
+// Minimum terminal size before showing a "too small" message
+pub const MIN_TERMINAL_WIDTH: u16 = 40;
+pub const MIN_TERMINAL_HEIGHT: u16 = 10;
 
 // Network defaults
 pub const DEFAULT_IP_REFRESH_MINUTES: u64 = 10;

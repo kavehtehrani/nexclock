@@ -3,8 +3,10 @@ use std::path::PathBuf;
 
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 use crate::constants;
+use crate::error::NexClockError;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -199,35 +201,47 @@ impl AppConfig {
         Self::config_dir().map(|dir| dir.join("config.toml"))
     }
 
+    /// Returns the data directory path (~/.local/share/nexclock/).
+    pub fn data_dir() -> Option<PathBuf> {
+        ProjectDirs::from("", "", "nexclock").map(|dirs| dirs.data_dir().to_path_buf())
+    }
+
     /// Loads the config from disk, or creates a default one if it doesn't exist.
     pub fn load() -> Self {
         let Some(path) = Self::config_path() else {
-            eprintln!("Warning: Could not determine config directory, using defaults");
+            warn!("Could not determine config directory, using defaults");
             return Self::default();
         };
 
-        if path.exists() {
+        let config = if path.exists() {
             match fs::read_to_string(&path) {
                 Ok(contents) => match toml::from_str(&contents) {
-                    Ok(config) => return config,
+                    Ok(config) => config,
                     Err(err) => {
-                        eprintln!("Warning: Failed to parse config: {err}. Using defaults.");
+                        warn!("Failed to parse config: {err}. Using defaults.");
+                        Self::default()
                     }
                 },
                 Err(err) => {
-                    eprintln!("Warning: Failed to read config: {err}. Using defaults.");
+                    warn!("Failed to read config: {err}. Using defaults.");
+                    Self::default()
                 }
             }
         } else {
-            // Generate default config file
+            info!("No config found, generating default at {}", path.display());
             let config = Self::default();
             if let Err(err) = config.save() {
-                eprintln!("Warning: Could not write default config: {err}");
+                warn!("Could not write default config: {err}");
             }
-            return config;
+            config
+        };
+
+        // Validate and return
+        if let Err(err) = config.validate() {
+            warn!("Config validation: {err}. Some values may be clamped.");
         }
 
-        Self::default()
+        config
     }
 
     /// Writes the current config to disk.
@@ -241,8 +255,68 @@ impl AppConfig {
         Ok(())
     }
 
+    /// Validates config values, returning an error describing all issues found.
+    pub fn validate(&self) -> Result<(), NexClockError> {
+        let mut issues = Vec::new();
+
+        if self.clock.time_format != "12h" && self.clock.time_format != "24h" {
+            issues.push(format!(
+                "clock.time_format must be \"12h\" or \"24h\", got \"{}\"",
+                self.clock.time_format
+            ));
+        }
+
+        if self.layout.clock_height_percent > 90 {
+            issues.push("layout.clock_height_percent must be <= 90".to_string());
+        }
+        if self.layout.info_height_percent > 90 {
+            issues.push("layout.info_height_percent must be <= 90".to_string());
+        }
+        if self.layout.left_column_percent == 0 || self.layout.left_column_percent > 90 {
+            issues.push("layout.left_column_percent must be 1-90".to_string());
+        }
+
+        if self.weather.temperature_unit != "celsius"
+            && self.weather.temperature_unit != "fahrenheit"
+        {
+            issues.push(format!(
+                "weather.temperature_unit must be \"celsius\" or \"fahrenheit\", got \"{}\"",
+                self.weather.temperature_unit
+            ));
+        }
+
+        if self.weather.latitude < -90.0 || self.weather.latitude > 90.0 {
+            issues.push("weather.latitude must be between -90 and 90".to_string());
+        }
+        if self.weather.longitude < -180.0 || self.weather.longitude > 180.0 {
+            issues.push("weather.longitude must be between -180 and 180".to_string());
+        }
+
+        if self.appearance.tick_rate_ms < constants::MIN_TICK_RATE_MS {
+            issues.push(format!(
+                "appearance.tick_rate_ms must be >= {}",
+                constants::MIN_TICK_RATE_MS
+            ));
+        }
+
+        if self.secondary_clock.enabled
+            && self.secondary_clock.timezone.parse::<chrono_tz::Tz>().is_err()
+        {
+            issues.push(format!(
+                "secondary_clock.timezone \"{}\" is not a valid timezone",
+                self.secondary_clock.timezone
+            ));
+        }
+
+        if issues.is_empty() {
+            Ok(())
+        } else {
+            Err(NexClockError::Config(issues.join("; ")))
+        }
+    }
+
     /// Returns the tick rate as a Duration.
     pub fn tick_rate(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(self.appearance.tick_rate_ms)
+        std::time::Duration::from_millis(self.appearance.tick_rate_ms.max(constants::MIN_TICK_RATE_MS))
     }
 }

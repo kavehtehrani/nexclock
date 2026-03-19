@@ -4,6 +4,7 @@ use std::fmt;
 pub enum NexClockError {
     Network(String),
     Parse(String),
+    Config(String),
 }
 
 impl fmt::Display for NexClockError {
@@ -11,6 +12,7 @@ impl fmt::Display for NexClockError {
         match self {
             Self::Network(msg) => write!(f, "Network error: {msg}"),
             Self::Parse(msg) => write!(f, "Parse error: {msg}"),
+            Self::Config(msg) => write!(f, "Config error: {msg}"),
         }
     }
 }

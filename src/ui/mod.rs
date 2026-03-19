@@ -6,16 +6,33 @@ pub mod system_stats;
 pub mod weather;
 
 use ratatui::{
-    layout::{Constraint, Layout},
+    layout::{Alignment, Constraint, Layout},
+    style::{Color, Style},
+    text::Line,
+    widgets::Paragraph,
     Frame,
 };
 
 use crate::app::App;
-use crate::constants::STATUS_BAR_HEIGHT;
+use crate::constants::{MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, STATUS_BAR_HEIGHT};
 
 /// Root draw function: composes the full UI layout.
 pub fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
+
+    // Guard: if terminal is too small, show a message instead of panicking
+    if area.width < MIN_TERMINAL_WIDTH || area.height < MIN_TERMINAL_HEIGHT {
+        let msg = Line::styled(
+            "Terminal too small",
+            Style::default().fg(Color::Red),
+        );
+        frame.render_widget(
+            Paragraph::new(msg).alignment(Alignment::Center),
+            area,
+        );
+        return;
+    }
+
     let config = &app.config;
 
     // Main vertical split: clock | info panels | status bar
