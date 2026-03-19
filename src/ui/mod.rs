@@ -77,8 +77,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     // Left column: secondary clock (top) + weather (bottom)
     let left_panels = Layout::vertical([
-        Constraint::Percentage(50),
-        Constraint::Percentage(50),
+        Constraint::Percentage(config.layout.left_top_percent),
+        Constraint::Percentage(100 - config.layout.left_top_percent),
     ])
     .split(columns[0]);
 
@@ -102,8 +102,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     // Right column: calendar (top) + system stats (bottom)
     let right_panels = Layout::vertical([
-        Constraint::Percentage(60),
-        Constraint::Percentage(40),
+        Constraint::Percentage(config.layout.right_top_percent),
+        Constraint::Percentage(100 - config.layout.right_top_percent),
     ])
     .split(columns[1]);
 

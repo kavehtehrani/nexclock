@@ -32,6 +32,8 @@ pub struct AppConfig {
 pub struct ClockConfig {
     #[serde(default = "default_time_format")]
     pub time_format: String,
+    #[serde(default = "default_date_format")]
+    pub date_format: String,
     #[serde(default = "default_true")]
     pub show_seconds: bool,
     #[serde(default = "default_true")]
@@ -46,6 +48,8 @@ pub struct SecondaryClockConfig {
     pub timezone: String,
     #[serde(default = "default_secondary_label")]
     pub label: String,
+    #[serde(default = "default_secondary_date_format")]
+    pub date_format: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,6 +66,10 @@ pub struct LayoutConfig {
     pub info_height_percent: u16,
     #[serde(default = "default_column_split")]
     pub left_column_percent: u16,
+    #[serde(default = "default_left_top")]
+    pub left_top_percent: u16,
+    #[serde(default = "default_right_top")]
+    pub right_top_percent: u16,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -108,6 +116,8 @@ fn default_secondary_label() -> String { constants::DEFAULT_SECONDARY_LABEL.to_s
 fn default_clock_height() -> u16 { constants::DEFAULT_CLOCK_HEIGHT_PERCENT }
 fn default_info_height() -> u16 { constants::DEFAULT_INFO_HEIGHT_PERCENT }
 fn default_column_split() -> u16 { constants::DEFAULT_LEFT_COLUMN_PERCENT }
+fn default_left_top() -> u16 { constants::DEFAULT_LEFT_TOP_PERCENT }
+fn default_right_top() -> u16 { constants::DEFAULT_RIGHT_TOP_PERCENT }
 fn default_ip_refresh() -> u64 { constants::DEFAULT_IP_REFRESH_MINUTES }
 fn default_latitude() -> f64 { constants::DEFAULT_LATITUDE }
 fn default_longitude() -> f64 { constants::DEFAULT_LONGITUDE }
@@ -116,12 +126,15 @@ fn default_weather_refresh() -> u64 { constants::DEFAULT_WEATHER_REFRESH_MINUTES
 fn default_stats_refresh() -> u64 { constants::DEFAULT_STATS_REFRESH_SECONDS }
 fn default_tick_rate() -> u64 { constants::DEFAULT_TICK_RATE.as_millis() as u64 }
 fn default_font_style() -> String { constants::DEFAULT_FONT_STYLE.to_string() }
+fn default_date_format() -> String { constants::DEFAULT_DATE_FORMAT.to_string() }
+fn default_secondary_date_format() -> String { constants::DEFAULT_SECONDARY_DATE_FORMAT.to_string() }
 
 
 impl Default for ClockConfig {
     fn default() -> Self {
         Self {
             time_format: default_time_format(),
+            date_format: default_date_format(),
             show_seconds: true,
             blink_separator: true,
         }
@@ -134,6 +147,7 @@ impl Default for SecondaryClockConfig {
             enabled: true,
             timezone: default_secondary_timezone(),
             label: default_secondary_label(),
+            date_format: default_secondary_date_format(),
         }
     }
 }
@@ -152,6 +166,8 @@ impl Default for LayoutConfig {
             clock_height_percent: default_clock_height(),
             info_height_percent: default_info_height(),
             left_column_percent: default_column_split(),
+            left_top_percent: default_left_top(),
+            right_top_percent: default_right_top(),
         }
     }
 }

@@ -35,6 +35,26 @@ impl PanelId {
             Self::SystemStats => "System Stats",
         }
     }
+
+    /// Which row-split field this panel belongs to (None for Clock, which
+    /// uses ClockHeight directly).
+    fn row_field(self) -> Option<LayoutField> {
+        match self {
+            Self::Clock => None,
+            Self::SecondaryClock | Self::Weather => Some(LayoutField::LeftTop),
+            Self::Calendar | Self::SystemStats => Some(LayoutField::RightTop),
+        }
+    }
+
+    /// Whether this panel is the top panel in its column's row split.
+    fn is_top(self) -> bool {
+        matches!(self, Self::SecondaryClock | Self::Calendar)
+    }
+
+    /// Whether this panel is in the left column (affects column-width direction).
+    fn is_left_column(self) -> bool {
+        matches!(self, Self::SecondaryClock | Self::Weather)
+    }
 }
 
 /// Controls which event-handling mode is active.
@@ -46,6 +66,15 @@ pub enum UiMode {
     Help,
 }
 
+/// Identifies a layout percentage field that can be resized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutField {
+    ClockHeight,
+    LeftColumn,
+    LeftTop,
+    RightTop,
+}
+
 /// An action that can be triggered from the context menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
@@ -53,10 +82,10 @@ pub enum MenuAction {
     ToggleTimeFormat,
     ToggleSeconds,
     ToggleBlink,
-    GrowVertical,
-    ShrinkVertical,
-    WidenLeft,
-    NarrowLeft,
+    CycleDateFormat,
+    /// Adjust a layout percentage. `grow = true` increases, `false` decreases.
+    /// ClockHeight is special: it inversely adjusts info_height_percent.
+    AdjustLayout(LayoutField, bool),
 }
 
 /// A single entry in the context menu.
@@ -205,6 +234,17 @@ impl App {
         self.font_style = self.font_style.prev();
     }
 
+    pub fn cycle_date_format(&mut self) {
+        let presets = constants::DATE_FORMAT_PRESETS;
+        let current = &self.config.clock.date_format;
+        let idx = presets.iter().position(|&p| p == current);
+        let next_idx = match idx {
+            Some(i) => (i + 1) % presets.len(),
+            None => 0,
+        };
+        self.config.clock.date_format = presets[next_idx].to_string();
+    }
+
     pub fn toggle_time_format(&mut self) {
         if self.config.clock.time_format == "24h" {
             self.config.clock.time_format = "12h".to_string();
@@ -266,61 +306,65 @@ impl App {
 
     /// Populates the context menu for the currently focused panel and enters ContextMenu mode.
     pub fn open_context_menu(&mut self) {
-        let mut items = Vec::new();
         let panel = self.focused_panel;
+        let mut items = Vec::new();
 
-        match panel {
-            PanelId::Clock => {
+        if panel == PanelId::Clock {
+            // Clock-specific toggle actions
+            items.push(ContextMenuItem {
+                label: "Toggle 12h/24h".into(),
+                action: MenuAction::ToggleTimeFormat,
+            });
+            items.push(ContextMenuItem {
+                label: "Toggle seconds".into(),
+                action: MenuAction::ToggleSeconds,
+            });
+            items.push(ContextMenuItem {
+                label: "Toggle blink".into(),
+                action: MenuAction::ToggleBlink,
+            });
+            items.push(ContextMenuItem {
+                label: "Cycle date format".into(),
+                action: MenuAction::CycleDateFormat,
+            });
+            items.push(ContextMenuItem {
+                label: "Taller".into(),
+                action: MenuAction::AdjustLayout(LayoutField::ClockHeight, true),
+            });
+            items.push(ContextMenuItem {
+                label: "Shorter".into(),
+                action: MenuAction::AdjustLayout(LayoutField::ClockHeight, false),
+            });
+        } else {
+            // All info panels share: hide, taller/shorter, wider/narrower
+            items.push(ContextMenuItem {
+                label: "Hide this panel".into(),
+                action: MenuAction::Hide(panel),
+            });
+
+            // Row resize: top panels grow the field directly, bottom panels invert
+            if let Some(field) = panel.row_field() {
+                let grow_means_taller = panel.is_top();
                 items.push(ContextMenuItem {
-                    label: "Toggle 12h/24h".into(),
-                    action: MenuAction::ToggleTimeFormat,
+                    label: "Taller".into(),
+                    action: MenuAction::AdjustLayout(field, grow_means_taller),
                 });
                 items.push(ContextMenuItem {
-                    label: "Toggle seconds".into(),
-                    action: MenuAction::ToggleSeconds,
-                });
-                items.push(ContextMenuItem {
-                    label: "Toggle blink".into(),
-                    action: MenuAction::ToggleBlink,
-                });
-                items.push(ContextMenuItem {
-                    label: "Grow".into(),
-                    action: MenuAction::GrowVertical,
-                });
-                items.push(ContextMenuItem {
-                    label: "Shrink".into(),
-                    action: MenuAction::ShrinkVertical,
-                });
-            }
-            PanelId::SecondaryClock | PanelId::Weather => {
-                items.push(ContextMenuItem {
-                    label: "Hide this panel".into(),
-                    action: MenuAction::Hide(panel),
-                });
-                items.push(ContextMenuItem {
-                    label: "Widen column".into(),
-                    action: MenuAction::WidenLeft,
-                });
-                items.push(ContextMenuItem {
-                    label: "Narrow column".into(),
-                    action: MenuAction::NarrowLeft,
-                });
-            }
-            PanelId::Calendar | PanelId::SystemStats => {
-                items.push(ContextMenuItem {
-                    label: "Hide this panel".into(),
-                    action: MenuAction::Hide(panel),
-                });
-                // Widen right = narrow left, and vice versa
-                items.push(ContextMenuItem {
-                    label: "Widen column".into(),
-                    action: MenuAction::NarrowLeft,
-                });
-                items.push(ContextMenuItem {
-                    label: "Narrow column".into(),
-                    action: MenuAction::WidenLeft,
+                    label: "Shorter".into(),
+                    action: MenuAction::AdjustLayout(field, !grow_means_taller),
                 });
             }
+
+            // Column resize: left panels widen by growing, right panels by shrinking
+            let grow_means_wider = panel.is_left_column();
+            items.push(ContextMenuItem {
+                label: "Wider".into(),
+                action: MenuAction::AdjustLayout(LayoutField::LeftColumn, grow_means_wider),
+            });
+            items.push(ContextMenuItem {
+                label: "Narrower".into(),
+                action: MenuAction::AdjustLayout(LayoutField::LeftColumn, !grow_means_wider),
+            });
         }
 
         self.context_menu_items = items;
@@ -333,49 +377,62 @@ impl App {
         match action {
             MenuAction::Hide(panel) => {
                 self.toggle_panel_visibility(panel);
-                // Move focus away from the now-hidden panel
                 if self.focused_panel == panel {
                     self.focus_next();
                 }
             }
             MenuAction::ToggleTimeFormat => self.toggle_time_format(),
+            MenuAction::CycleDateFormat => self.cycle_date_format(),
             MenuAction::ToggleSeconds => {
                 self.config.clock.show_seconds = !self.config.clock.show_seconds;
             }
             MenuAction::ToggleBlink => {
                 self.config.clock.blink_separator = !self.config.clock.blink_separator;
             }
-            MenuAction::GrowVertical => {
-                let cur = self.config.layout.clock_height_percent;
-                let new = (cur + constants::RESIZE_STEP_PERCENT).min(constants::MAX_PANEL_PERCENT);
-                let delta = new - cur;
-                self.config.layout.clock_height_percent = new;
-                self.config.layout.info_height_percent =
-                    self.config.layout.info_height_percent.saturating_sub(delta);
-            }
-            MenuAction::ShrinkVertical => {
-                let cur = self.config.layout.clock_height_percent;
-                let new = cur
-                    .saturating_sub(constants::RESIZE_STEP_PERCENT)
-                    .max(constants::MIN_PANEL_PERCENT);
-                let delta = cur - new;
-                self.config.layout.clock_height_percent = new;
-                self.config.layout.info_height_percent =
-                    (self.config.layout.info_height_percent + delta).min(constants::MAX_PANEL_PERCENT);
-            }
-            MenuAction::WidenLeft => {
-                let cur = self.config.layout.left_column_percent;
-                self.config.layout.left_column_percent =
-                    (cur + constants::RESIZE_STEP_PERCENT).min(constants::MAX_PANEL_PERCENT);
-            }
-            MenuAction::NarrowLeft => {
-                let cur = self.config.layout.left_column_percent;
-                self.config.layout.left_column_percent = cur
-                    .saturating_sub(constants::RESIZE_STEP_PERCENT)
-                    .max(constants::MIN_PANEL_PERCENT);
-            }
+            MenuAction::AdjustLayout(field, grow) => self.adjust_layout(field, grow),
         }
         self.ui_mode = UiMode::Normal;
+    }
+
+    /// Single resize handler for all layout fields. Clamps within MIN/MAX bounds.
+    /// ClockHeight is special: growing it shrinks info_height inversely.
+    fn adjust_layout(&mut self, field: LayoutField, grow: bool) {
+        let value = self.layout_field_mut(field);
+        let old = *value;
+        *value = if grow {
+            (old + constants::RESIZE_STEP_PERCENT).min(constants::MAX_PANEL_PERCENT)
+        } else {
+            old.saturating_sub(constants::RESIZE_STEP_PERCENT)
+                .max(constants::MIN_PANEL_PERCENT)
+        };
+        let applied = *value;
+
+        // ClockHeight and InfoHeight are coupled: one grows, the other shrinks
+        if field == LayoutField::ClockHeight {
+            let delta = if grow {
+                applied - old
+            } else {
+                old - applied
+            };
+            if grow {
+                self.config.layout.info_height_percent =
+                    self.config.layout.info_height_percent.saturating_sub(delta);
+            } else {
+                self.config.layout.info_height_percent = (self.config.layout.info_height_percent
+                    + delta)
+                    .min(constants::MAX_PANEL_PERCENT);
+            }
+        }
+    }
+
+    /// Returns a mutable reference to the layout percentage for the given field.
+    fn layout_field_mut(&mut self, field: LayoutField) -> &mut u16 {
+        match field {
+            LayoutField::ClockHeight => &mut self.config.layout.clock_height_percent,
+            LayoutField::LeftColumn => &mut self.config.layout.left_column_percent,
+            LayoutField::LeftTop => &mut self.config.layout.left_top_percent,
+            LayoutField::RightTop => &mut self.config.layout.right_top_percent,
+        }
     }
 
     /// Toggle visibility of a given panel.

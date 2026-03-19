@@ -107,7 +107,7 @@ pub fn render(
 
     // Date line below the clock
     let now = Local::now();
-    let date_str = now.format("%A, %B %d, %Y").to_string();
+    let date_str = now.format(&config.date_format).to_string();
     let date_line = Line::from(Span::styled(
         date_str,
         Style::default()

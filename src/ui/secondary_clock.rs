@@ -28,7 +28,7 @@ pub fn render(frame: &mut Frame, area: Rect, config: &SecondaryClockConfig, is_f
 
     let now = Utc::now().with_timezone(&tz);
     let time_str = now.format("%H:%M:%S").to_string();
-    let date_str = now.format("%a, %b %d").to_string();
+    let date_str = now.format(&config.date_format).to_string();
 
     let lines = vec![
         Line::from(Span::styled(

@@ -17,6 +17,8 @@ pub const DEFAULT_SECONDARY_LABEL: &str = "New York";
 pub const DEFAULT_CLOCK_HEIGHT_PERCENT: u16 = 40;
 pub const DEFAULT_INFO_HEIGHT_PERCENT: u16 = 50;
 pub const DEFAULT_LEFT_COLUMN_PERCENT: u16 = 50;
+pub const DEFAULT_LEFT_TOP_PERCENT: u16 = 50;
+pub const DEFAULT_RIGHT_TOP_PERCENT: u16 = 60;
 pub const STATUS_BAR_HEIGHT: u16 = 3;
 
 // Minimum terminal size before showing a "too small" message
@@ -41,3 +43,14 @@ pub const RESIZE_STEP_PERCENT: u16 = 5;
 pub const MIN_PANEL_PERCENT: u16 = 10;
 pub const MAX_PANEL_PERCENT: u16 = 80;
 pub const DEFAULT_FONT_STYLE: &str = "Standard";
+
+// Date format
+pub const DEFAULT_DATE_FORMAT: &str = "%A, %B %d, %Y";
+pub const DEFAULT_SECONDARY_DATE_FORMAT: &str = "%a, %b %d";
+pub const DATE_FORMAT_PRESETS: &[&str] = &[
+    "%A, %B %d, %Y", // Wednesday, March 19, 2026
+    "%Y-%m-%d",       // 2026-03-19
+    "%d/%m/%Y",       // 19/03/2026
+    "%B %d, %Y",      // March 19, 2026
+    "%d %b %Y",       // 19 Mar 2026
+];
