@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::defaults::{
     default_date_format, default_font_style, default_latitude, default_longitude,
-    default_stats_refresh, default_temp_unit, default_time_format, default_true,
-    default_weather_refresh,
+    default_stats_refresh, default_temp_unit, default_time_format,
+    default_false, default_weather_refresh, default_world_clock_timezones,
 };
 
 // ── Component type identification ───────────────────────────────────
@@ -14,6 +14,7 @@ pub enum ComponentType {
     Weather,
     Calendar,
     SystemStats,
+    WorldClock,
 }
 
 impl ComponentType {
@@ -23,6 +24,7 @@ impl ComponentType {
             Self::Weather => "Weather",
             Self::Calendar => "Calendar",
             Self::SystemStats => "System Stats",
+            Self::WorldClock => "World Clock",
         }
     }
 
@@ -32,6 +34,7 @@ impl ComponentType {
             Self::Weather => "weather",
             Self::Calendar => "calendar",
             Self::SystemStats => "system_stats",
+            Self::WorldClock => "world_clock",
         }
     }
 
@@ -41,6 +44,7 @@ impl ComponentType {
             "weather" => Some(Self::Weather),
             "calendar" => Some(Self::Calendar),
             "system_stats" => Some(Self::SystemStats),
+            "world_clock" => Some(Self::WorldClock),
             _ => None,
         }
     }
@@ -84,9 +88,9 @@ pub struct ClockSettings {
     pub time_format: String,
     #[serde(default = "default_date_format")]
     pub date_format: String,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub show_seconds: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub blink_separator: bool,
     #[serde(default)]
     pub timezone: Option<String>,
@@ -156,6 +160,33 @@ impl Default for SystemStatsSettings {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimezoneEntry {
+    pub timezone: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldClockSettings {
+    #[serde(default = "default_time_format")]
+    pub time_format: String,
+    #[serde(default = "default_false")]
+    pub show_seconds: bool,
+    #[serde(default = "default_world_clock_timezones")]
+    pub timezones: Vec<TimezoneEntry>,
+}
+
+impl Default for WorldClockSettings {
+    fn default() -> Self {
+        Self {
+            time_format: default_time_format(),
+            show_seconds: false,
+            timezones: default_world_clock_timezones(),
+        }
+    }
+}
+
 // ── Component config enum ───────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -164,6 +195,7 @@ pub enum ComponentConfig {
     Weather(WeatherSettings),
     Calendar(CalendarSettings),
     SystemStats(SystemStatsSettings),
+    WorldClock(WorldClockSettings),
 }
 
 impl ComponentConfig {
@@ -173,6 +205,7 @@ impl ComponentConfig {
             Self::Weather(_) => ComponentType::Weather,
             Self::Calendar(_) => ComponentType::Calendar,
             Self::SystemStats(_) => ComponentType::SystemStats,
+            Self::WorldClock(_) => ComponentType::WorldClock,
         }
     }
 }
@@ -200,6 +233,9 @@ impl ComponentEntry {
             ComponentType::Calendar => ComponentConfig::Calendar(CalendarSettings::default()),
             ComponentType::SystemStats => {
                 ComponentConfig::SystemStats(SystemStatsSettings::default())
+            }
+            ComponentType::WorldClock => {
+                ComponentConfig::WorldClock(WorldClockSettings::default())
             }
         };
         Self {
@@ -323,6 +359,32 @@ impl ComponentEntry {
                     toml::Value::Integer(s.refresh_interval_seconds as i64),
                 );
             }
+            ComponentConfig::WorldClock(s) => {
+                table.insert(
+                    "time_format".to_string(),
+                    toml::Value::String(s.time_format.clone()),
+                );
+                table.insert(
+                    "show_seconds".to_string(),
+                    toml::Value::Boolean(s.show_seconds),
+                );
+                let tz_array: Vec<toml::Value> = s
+                    .timezones
+                    .iter()
+                    .map(|tz| {
+                        let mut t = toml::Table::new();
+                        t.insert(
+                            "timezone".to_string(),
+                            toml::Value::String(tz.timezone.clone()),
+                        );
+                        if let Some(ref label) = tz.label {
+                            t.insert("label".to_string(), toml::Value::String(label.clone()));
+                        }
+                        toml::Value::Table(t)
+                    })
+                    .collect();
+                table.insert("timezones".to_string(), toml::Value::Array(tz_array));
+            }
         }
 
         table
@@ -394,6 +456,11 @@ pub fn parse_component(id: &str, table: &toml::Table) -> Result<ComponentEntry, 
             let settings: SystemStatsSettings =
                 value.try_into().map_err(|e| format!("component '{id}': {e}"))?;
             ComponentConfig::SystemStats(settings)
+        }
+        ComponentType::WorldClock => {
+            let settings: WorldClockSettings =
+                value.try_into().map_err(|e| format!("component '{id}': {e}"))?;
+            ComponentConfig::WorldClock(settings)
         }
     };
 

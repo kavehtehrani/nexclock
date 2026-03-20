@@ -548,6 +548,22 @@ impl AppConfig {
                         ));
                     }
             }
+            if let ComponentConfig::WorldClock(ref s) = entry.config {
+                if s.time_format != "12h" && s.time_format != "24h" {
+                    issues.push(format!(
+                        "component '{}': time_format must be \"12h\" or \"24h\"",
+                        entry.id
+                    ));
+                }
+                for tz_entry in &s.timezones {
+                    if tz_entry.timezone.parse::<chrono_tz::Tz>().is_err() {
+                        issues.push(format!(
+                            "component '{}': invalid timezone '{}'",
+                            entry.id, tz_entry.timezone
+                        ));
+                    }
+                }
+            }
             if let ComponentConfig::Weather(ref s) = entry.config {
                 if s.temperature_unit != "celsius" && s.temperature_unit != "fahrenheit" {
                     issues.push(format!(

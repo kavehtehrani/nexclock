@@ -5,6 +5,9 @@ use crate::constants;
 pub fn default_true() -> bool {
     true
 }
+pub fn default_false() -> bool {
+    false
+}
 pub fn default_time_format() -> String {
     constants::DEFAULT_TIME_FORMAT.to_string()
 }
@@ -28,4 +31,20 @@ pub fn default_weather_refresh() -> u64 {
 }
 pub fn default_stats_refresh() -> u64 {
     constants::DEFAULT_STATS_REFRESH_SECONDS
+}
+pub fn default_world_clock_timezones() -> Vec<crate::component::TimezoneEntry> {
+    vec![
+        crate::component::TimezoneEntry {
+            timezone: "UTC".to_string(),
+            label: Some("UTC".to_string()),
+        },
+        crate::component::TimezoneEntry {
+            timezone: "US/Eastern".to_string(),
+            label: Some("New York".to_string()),
+        },
+        crate::component::TimezoneEntry {
+            timezone: "Europe/London".to_string(),
+            label: Some("London".to_string()),
+        },
+    ]
 }

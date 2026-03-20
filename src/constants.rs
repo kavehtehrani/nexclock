@@ -106,6 +106,11 @@ pub const SHORTCUT_KEY_WIDTH: usize = 14;
 pub const INDICATOR_ARROW: &str = "\u{25b8}";
 pub const GRADIENT_BLOCK: &str = "\u{2588}";
 
+// World Clock / timezone search
+pub const TZ_SEARCH_WIDTH: u16 = 45;
+pub const TZ_SEARCH_MAX_RESULTS: usize = 10;
+pub const TZ_REMOVE_MENU_WIDTH: u16 = 40;
+
 // Theme color defaults
 pub const DEFAULT_THEME_PRIMARY: &str = "cyan";
 pub const DEFAULT_THEME_SECONDARY: &str = "yellow";

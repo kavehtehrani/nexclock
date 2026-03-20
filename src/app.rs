@@ -7,6 +7,7 @@ use tracing::{error, warn};
 
 use crate::component::{
     find_empty_cell, rects_overlap, ClockStyle, ComponentConfig, ComponentEntry, ComponentType,
+    TimezoneEntry,
 };
 use crate::config::{AppConfig, ThemeConfig};
 use crate::constants;
@@ -26,6 +27,8 @@ pub enum UiMode {
     AddComponentMenu,
     ColorMenu,
     Help,
+    TimezoneSearch,
+    TimezoneRemoveMenu,
 }
 
 // ── Menu action ─────────────────────────────────────────────────────
@@ -38,6 +41,8 @@ pub enum MenuAction {
     CycleDateFormat,
     ChangeColors,
     Remove,
+    AddTimezone,
+    RemoveTimezone,
 }
 
 const RESIZE_STEP: u16 = 5;
@@ -239,6 +244,9 @@ pub enum ComponentRuntime {
         stats_rx: watch::Receiver<SystemStats>,
         area: Rect,
     },
+    WorldClock {
+        area: Rect,
+    },
 }
 
 impl ComponentRuntime {
@@ -248,6 +256,7 @@ impl ComponentRuntime {
             Self::Weather { area, .. } => *area,
             Self::Calendar { area } => *area,
             Self::SystemStats { area, .. } => *area,
+            Self::WorldClock { area } => *area,
         }
     }
 
@@ -257,6 +266,7 @@ impl ComponentRuntime {
             Self::Weather { area, .. } => *area = new_area,
             Self::Calendar { area } => *area = new_area,
             Self::SystemStats { area, .. } => *area = new_area,
+            Self::WorldClock { area } => *area = new_area,
         }
     }
 }
@@ -277,6 +287,11 @@ pub struct App {
     pub ui_mode: UiMode,
     pub context_menu_items: Vec<ContextMenuItem>,
     pub menu_cursor: usize,
+
+    // Timezone search state
+    pub tz_search_query: String,
+    pub tz_search_results: Vec<&'static str>,
+    pub tz_search_cursor: usize,
 }
 
 impl App {
@@ -302,6 +317,9 @@ impl App {
             ui_mode: UiMode::Normal,
             context_menu_items: Vec::new(),
             menu_cursor: 0,
+            tz_search_query: String::new(),
+            tz_search_results: Vec::new(),
+            tz_search_cursor: 0,
         }
     }
 
@@ -422,29 +440,50 @@ impl App {
         let mut items = Vec::new();
 
         // Type-specific actions
-        if let ComponentConfig::Clock(s) = &comp.config {
-            items.push(ContextMenuItem {
-                label: "Toggle 12h/24h".into(),
-                action: MenuAction::ToggleTimeFormat,
-            });
-            items.push(ContextMenuItem {
-                label: "Cycle date format".into(),
-                action: MenuAction::CycleDateFormat,
-            });
-            if s.style == ClockStyle::Large {
+        match &comp.config {
+            ComponentConfig::Clock(s) => {
+                items.push(ContextMenuItem {
+                    label: "Toggle 12h/24h".into(),
+                    action: MenuAction::ToggleTimeFormat,
+                });
+                items.push(ContextMenuItem {
+                    label: "Cycle date format".into(),
+                    action: MenuAction::CycleDateFormat,
+                });
+                if s.style == ClockStyle::Large {
+                    items.push(ContextMenuItem {
+                        label: "Toggle seconds".into(),
+                        action: MenuAction::ToggleSeconds,
+                    });
+                    items.push(ContextMenuItem {
+                        label: "Toggle blink".into(),
+                        action: MenuAction::ToggleBlink,
+                    });
+                }
+                items.push(ContextMenuItem {
+                    label: "Colors".into(),
+                    action: MenuAction::ChangeColors,
+                });
+            }
+            ComponentConfig::WorldClock(_) => {
+                items.push(ContextMenuItem {
+                    label: "Add timezone".into(),
+                    action: MenuAction::AddTimezone,
+                });
+                items.push(ContextMenuItem {
+                    label: "Remove timezone".into(),
+                    action: MenuAction::RemoveTimezone,
+                });
+                items.push(ContextMenuItem {
+                    label: "Toggle 12h/24h".into(),
+                    action: MenuAction::ToggleTimeFormat,
+                });
                 items.push(ContextMenuItem {
                     label: "Toggle seconds".into(),
                     action: MenuAction::ToggleSeconds,
                 });
-                items.push(ContextMenuItem {
-                    label: "Toggle blink".into(),
-                    action: MenuAction::ToggleBlink,
-                });
             }
-            items.push(ContextMenuItem {
-                label: "Colors".into(),
-                action: MenuAction::ChangeColors,
-            });
+            _ => {}
         }
 
         // Remove
@@ -474,8 +513,14 @@ impl App {
                 }
             }
             MenuAction::ToggleSeconds => {
-                if let ComponentConfig::Clock(ref mut s) = self.components[idx].config {
-                    s.show_seconds = !s.show_seconds;
+                match &mut self.components[idx].config {
+                    ComponentConfig::Clock(s) => {
+                        s.show_seconds = !s.show_seconds;
+                    }
+                    ComponentConfig::WorldClock(s) => {
+                        s.show_seconds = !s.show_seconds;
+                    }
+                    _ => {}
                 }
             }
             MenuAction::ToggleBlink => {
@@ -490,6 +535,19 @@ impl App {
             }
             MenuAction::Remove => {
                 self.remove_component(idx);
+            }
+            MenuAction::AddTimezone => {
+                self.tz_search_query.clear();
+                self.tz_search_results.clear();
+                self.tz_search_cursor = 0;
+                self.tz_search_update();
+                self.ui_mode = UiMode::TimezoneSearch;
+                return;
+            }
+            MenuAction::RemoveTimezone => {
+                self.menu_cursor = 0;
+                self.ui_mode = UiMode::TimezoneRemoveMenu;
+                return;
             }
         }
         self.ui_mode = UiMode::Normal;
@@ -607,9 +665,40 @@ impl App {
         self.components.remove(idx);
         self.runtime.remove(&id);
 
+        self.compact_grid();
+
         let vis = self.visible_components();
         if self.focused_index >= vis.len() && !vis.is_empty() {
             self.focused_index = vis.len() - 1;
+        }
+    }
+
+    /// Shrinks grid.rows and grid.columns to remove trailing empty rows/columns.
+    fn compact_grid(&mut self) {
+        let min_rows = self
+            .components
+            .iter()
+            .map(|c| c.placement.row + c.placement.row_span)
+            .max()
+            .unwrap_or(1)
+            .max(1);
+
+        if min_rows < self.config.grid.rows {
+            self.config.grid.rows = min_rows;
+            self.config.grid.row_heights = None;
+        }
+
+        let min_cols = self
+            .components
+            .iter()
+            .map(|c| c.placement.column + c.placement.col_span)
+            .max()
+            .unwrap_or(1)
+            .max(1);
+
+        if min_cols < self.config.grid.columns {
+            self.config.grid.columns = min_cols;
+            self.config.grid.column_widths = None;
         }
     }
 
@@ -664,17 +753,27 @@ impl App {
         }
     }
 
-    /// Toggle time format for the focused component (if it's a clock).
+    /// Toggle time format for the focused component (clock or world clock).
     pub fn toggle_time_format(&mut self) {
         let Some(idx) = self.focused_component_idx() else {
             return;
         };
-        if let ComponentConfig::Clock(ref mut s) = self.components[idx].config {
-            s.time_format = if s.time_format == "24h" {
-                "12h".to_string()
-            } else {
-                "24h".to_string()
-            };
+        match &mut self.components[idx].config {
+            ComponentConfig::Clock(s) => {
+                s.time_format = if s.time_format == "24h" {
+                    "12h".to_string()
+                } else {
+                    "24h".to_string()
+                };
+            }
+            ComponentConfig::WorldClock(s) => {
+                s.time_format = if s.time_format == "24h" {
+                    "12h".to_string()
+                } else {
+                    "24h".to_string()
+                };
+            }
+            _ => {}
         }
     }
 
@@ -714,6 +813,70 @@ impl App {
                     }
         }
         "Block"
+    }
+
+    // ── Timezone search ──────────────────────────────────────────────
+
+    /// Re-filters `TZ_VARIANTS` based on the current search query.
+    pub fn tz_search_update(&mut self) {
+        let query = self.tz_search_query.to_lowercase();
+        self.tz_search_results = chrono_tz::TZ_VARIANTS
+            .iter()
+            .map(|tz| tz.name())
+            .filter(|name| {
+                if query.is_empty() {
+                    return true;
+                }
+                name.to_lowercase().contains(&query)
+            })
+            .take(constants::TZ_SEARCH_MAX_RESULTS)
+            .collect();
+        // Clamp cursor
+        if !self.tz_search_results.is_empty() {
+            self.tz_search_cursor = self.tz_search_cursor.min(self.tz_search_results.len() - 1);
+        } else {
+            self.tz_search_cursor = 0;
+        }
+    }
+
+    /// Adds the selected timezone from search results to the focused world clock.
+    pub fn tz_search_select(&mut self) {
+        let Some(tz_name) = self.tz_search_results.get(self.tz_search_cursor).copied() else {
+            return;
+        };
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        if let ComponentConfig::WorldClock(ref mut s) = self.components[idx].config {
+            // Derive a label from the timezone name (last segment after '/')
+            let label = tz_name.rsplit('/').next().unwrap_or(tz_name).replace('_', " ");
+            s.timezones.push(TimezoneEntry {
+                timezone: tz_name.to_string(),
+                label: Some(label),
+            });
+        }
+    }
+
+    /// Removes a timezone at the given index from the focused world clock.
+    pub fn remove_timezone(&mut self, tz_index: usize) {
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        if let ComponentConfig::WorldClock(s) = &mut self.components[idx].config
+            && tz_index < s.timezones.len()
+        {
+            s.timezones.remove(tz_index);
+        }
+    }
+
+    /// Returns the timezone list of the focused world clock (for the remove menu).
+    pub fn focused_world_clock_timezones(&self) -> &[TimezoneEntry] {
+        if let Some(comp) = self.focused_component()
+            && let ComponentConfig::WorldClock(s) = &comp.config
+        {
+            return &s.timezones;
+        }
+        &[]
     }
 
     /// Sync runtime state back to config and save.
@@ -773,6 +936,9 @@ fn spawn_component_runtime(entry: &ComponentEntry) -> ComponentRuntime {
                 area: Rect::default(),
             }
         }
+        ComponentConfig::WorldClock(_) => ComponentRuntime::WorldClock {
+            area: Rect::default(),
+        },
     }
 }
 

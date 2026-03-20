@@ -33,6 +33,8 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         UiMode::VisibilityMenu => handle_visibility_menu_key(app, key.code),
         UiMode::AddComponentMenu => handle_add_menu_key(app, key.code),
         UiMode::ColorMenu => handle_color_menu_key(app, key.code),
+        UiMode::TimezoneSearch => handle_tz_search_key(app, key.code),
+        UiMode::TimezoneRemoveMenu => handle_tz_remove_menu_key(app, key.code),
         UiMode::Help => {
             app.ui_mode = UiMode::Normal;
         }
@@ -251,6 +253,70 @@ fn handle_color_menu_key(app: &mut App, code: KeyCode) {
         KeyCode::Enter => {
             app.apply_color_preset(app.menu_cursor);
             app.ui_mode = UiMode::Normal;
+        }
+        KeyCode::Esc => {
+            app.ui_mode = UiMode::Normal;
+        }
+        _ => {}
+    }
+}
+
+fn handle_tz_search_key(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Char(c) => {
+            app.tz_search_query.push(c);
+            app.tz_search_update();
+        }
+        KeyCode::Backspace => {
+            app.tz_search_query.pop();
+            app.tz_search_update();
+        }
+        KeyCode::Up => {
+            if app.tz_search_cursor > 0 {
+                app.tz_search_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            let max = app.tz_search_results.len().saturating_sub(1);
+            if app.tz_search_cursor < max {
+                app.tz_search_cursor += 1;
+            }
+        }
+        KeyCode::Enter => {
+            app.tz_search_select();
+            app.ui_mode = UiMode::Normal;
+        }
+        KeyCode::Esc => {
+            app.ui_mode = UiMode::Normal;
+        }
+        _ => {}
+    }
+}
+
+fn handle_tz_remove_menu_key(app: &mut App, code: KeyCode) {
+    let count = app.focused_world_clock_timezones().len();
+    match code {
+        KeyCode::Up => {
+            if app.menu_cursor > 0 {
+                app.menu_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.menu_cursor < count.saturating_sub(1) {
+                app.menu_cursor += 1;
+            }
+        }
+        KeyCode::Enter => {
+            if app.menu_cursor < count {
+                app.remove_timezone(app.menu_cursor);
+                // Clamp cursor after removal
+                let new_count = app.focused_world_clock_timezones().len();
+                if new_count == 0 {
+                    app.ui_mode = UiMode::Normal;
+                } else if app.menu_cursor >= new_count {
+                    app.menu_cursor = new_count - 1;
+                }
+            }
         }
         KeyCode::Esc => {
             app.ui_mode = UiMode::Normal;

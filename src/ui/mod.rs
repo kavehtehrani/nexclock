@@ -4,6 +4,7 @@ pub mod grid;
 pub mod status_bar;
 pub mod system_stats;
 pub mod weather;
+pub mod world_clock;
 
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
@@ -131,6 +132,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         UiMode::VisibilityMenu => render_visibility_menu(frame, app, area),
         UiMode::AddComponentMenu => render_add_menu(frame, app, area),
         UiMode::ColorMenu => render_color_menu(frame, app, area),
+        UiMode::TimezoneSearch => render_tz_search(frame, app, area),
+        UiMode::TimezoneRemoveMenu => render_tz_remove_menu(frame, app, area),
         UiMode::Normal | UiMode::EditMode => {}
     }
 }
@@ -184,6 +187,9 @@ fn render_component(frame: &mut Frame, area: Rect, app: &App, idx: usize, is_foc
                 crate::data::system::read_system_stats()
             };
             system_stats::render(frame, area, &stats, is_focused, is_editing, theme);
+        }
+        ComponentConfig::WorldClock(settings) => {
+            world_clock::render(frame, area, settings, is_focused, is_editing, theme);
         }
     }
 }
@@ -383,6 +389,7 @@ pub fn add_menu_options() -> Vec<(&'static str, ComponentType, Option<ClockStyle
     vec![
         ("Clock (Large)", ComponentType::Clock, Some(ClockStyle::Large)),
         ("Clock (Compact)", ComponentType::Clock, Some(ClockStyle::Compact)),
+        ("World Clock", ComponentType::WorldClock, None),
         ("Weather", ComponentType::Weather, None),
         ("Calendar", ComponentType::Calendar, None),
         ("System Stats", ComponentType::SystemStats, None),
@@ -432,6 +439,72 @@ fn render_popup(frame: &mut Frame, area: Rect, title: &str, lines: &[Line], widt
             .alignment(Alignment::Center),
         popup_area,
     );
+}
+
+fn render_tz_search(frame: &mut Frame, app: &App, area: Rect) {
+    let theme = &app.theme;
+    let popup_width = constants::TZ_SEARCH_WIDTH;
+    let inner_w = (popup_width - 2) as usize;
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Search input line
+    let query_display = format!(" > {}_", app.tz_search_query);
+    lines.push(Line::styled(
+        query_display,
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+    ));
+    lines.push(Line::from(""));
+
+    // Filtered results
+    for (i, tz_name) in app.tz_search_results.iter().enumerate() {
+        lines.push(styled_menu_line(tz_name, i, app.tz_search_cursor, inner_w, theme));
+    }
+
+    if app.tz_search_results.is_empty() && !app.tz_search_query.is_empty() {
+        lines.push(Line::styled(
+            " No matches",
+            Style::default().fg(theme.muted),
+        ));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Esc to cancel ",
+        Style::default().fg(theme.muted),
+    )));
+
+    render_popup(frame, area, "Add Timezone", &lines, popup_width);
+}
+
+fn render_tz_remove_menu(frame: &mut Frame, app: &App, area: Rect) {
+    let theme = &app.theme;
+    let popup_width = constants::TZ_REMOVE_MENU_WIDTH;
+    let inner_w = (popup_width - 2) as usize;
+
+    let timezones = app.focused_world_clock_timezones();
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if timezones.is_empty() {
+        lines.push(Line::styled(
+            " No timezones to remove",
+            Style::default().fg(theme.muted),
+        ));
+    } else {
+        for (i, entry) in timezones.iter().enumerate() {
+            let label = entry.label.as_deref().unwrap_or(&entry.timezone);
+            lines.push(styled_menu_line(label, i, app.menu_cursor, inner_w, theme));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Esc to cancel ",
+        Style::default().fg(theme.muted),
+    )));
+
+    render_popup(frame, area, "Remove Timezone", &lines, popup_width);
 }
 
 fn shortcut_line<'a>(key: &'a str, desc: &'a str, theme: &ResolvedTheme) -> Line<'a> {
