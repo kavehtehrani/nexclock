@@ -24,35 +24,37 @@ pub fn render(
 
     let lines = match weather {
         Some(data) => {
-            let mut lines = vec![Line::from(Span::styled(
-                format!("{:.1}°{} - {}", data.temperature, data.unit, data.description),
-                Style::default()
-                    .fg(theme.secondary)
-                    .add_modifier(Modifier::BOLD),
-            ))];
+            let mut lines = vec![
+                Line::from(Span::styled(
+                    data.description.clone(),
+                    Style::default()
+                        .fg(theme.secondary)
+                        .add_modifier(Modifier::BOLD),
+                )),
+            ];
 
-            let mut detail_spans = Vec::new();
+            let mut detail_spans = vec![Span::styled(
+                format!("{:.1}°{}", data.temperature, data.unit),
+                Style::default().fg(theme.primary),
+            )];
 
             if let Some(humidity) = data.humidity {
+                detail_spans.push(Span::raw("  "));
                 detail_spans.push(Span::styled(
-                    format!("Humidity: {humidity}%"),
-                    Style::default().fg(theme.primary),
+                    format!("{humidity}% humidity"),
+                    Style::default().fg(theme.text),
                 ));
             }
 
             if let Some(precip) = data.precipitation_probability {
-                if !detail_spans.is_empty() {
-                    detail_spans.push(Span::raw("  "));
-                }
+                detail_spans.push(Span::raw("  "));
                 detail_spans.push(Span::styled(
-                    format!("Rain: {precip}%"),
+                    format!("{precip}% rain"),
                     Style::default().fg(theme.info),
                 ));
             }
 
-            if !detail_spans.is_empty() {
-                lines.push(Line::from(detail_spans));
-            }
+            lines.push(Line::from(detail_spans));
 
             lines
         }

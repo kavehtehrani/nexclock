@@ -66,14 +66,14 @@ pub fn render(
         ]),
     ];
 
-    let paragraph = Paragraph::new(lines).alignment(Alignment::Left);
+    let paragraph = Paragraph::new(lines).alignment(Alignment::Center);
 
     let content_height = 3u16;
     let y_offset = inner.height.saturating_sub(content_height) / 2;
     let centered = Rect {
-        x: inner.x + 1,
+        x: inner.x,
         y: inner.y + y_offset,
-        width: inner.width.saturating_sub(1),
+        width: inner.width,
         height: inner.height.saturating_sub(y_offset),
     };
 

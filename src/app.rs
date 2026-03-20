@@ -36,10 +36,6 @@ pub enum MenuAction {
     ToggleSeconds,
     ToggleBlink,
     CycleDateFormat,
-    SpanMoreRows,
-    SpanFewerRows,
-    SpanMoreCols,
-    SpanFewerCols,
     ChangeColors,
     Remove,
 }
@@ -451,32 +447,6 @@ impl App {
             });
         }
 
-        // Span controls (merge/unmerge cells)
-        if comp.placement.row + comp.placement.row_span < self.config.grid.rows {
-            items.push(ContextMenuItem {
-                label: "Span more rows".into(),
-                action: MenuAction::SpanMoreRows,
-            });
-        }
-        if comp.placement.row_span > 1 {
-            items.push(ContextMenuItem {
-                label: "Span fewer rows".into(),
-                action: MenuAction::SpanFewerRows,
-            });
-        }
-        if comp.placement.column + comp.placement.col_span < self.config.grid.columns {
-            items.push(ContextMenuItem {
-                label: "Span more cols".into(),
-                action: MenuAction::SpanMoreCols,
-            });
-        }
-        if comp.placement.col_span > 1 {
-            items.push(ContextMenuItem {
-                label: "Span fewer cols".into(),
-                action: MenuAction::SpanFewerCols,
-            });
-        }
-
         // Remove
         items.push(ContextMenuItem {
             label: "Remove".into(),
@@ -519,10 +489,6 @@ impl App {
                     s.blink_separator = !s.blink_separator;
                 }
             }
-            MenuAction::SpanMoreRows => self.adjust_span(idx, true, true),
-            MenuAction::SpanFewerRows => self.adjust_span(idx, true, false),
-            MenuAction::SpanMoreCols => self.adjust_span(idx, false, true),
-            MenuAction::SpanFewerCols => self.adjust_span(idx, false, false),
             MenuAction::ChangeColors => {
                 self.menu_cursor = 0;
                 self.ui_mode = UiMode::ColorMenu;
@@ -536,15 +502,76 @@ impl App {
     }
 
     pub fn move_component(&mut self, idx: usize, dr: i16, dc: i16) {
-        let p = &mut self.components[idx].placement;
+        let p = &self.components[idx].placement;
         let new_row = (p.row as i16 + dr).max(0) as u16;
         let new_col = (p.column as i16 + dc).max(0) as u16;
+        let span_r = p.row_span;
+        let span_c = p.col_span;
+        let grid_rows = self.config.grid.rows;
+        let grid_cols = self.config.grid.columns;
 
-        if new_row + p.row_span <= self.config.grid.rows {
-            p.row = new_row;
+        // Bounds check
+        if new_row + span_r > grid_rows || new_col + span_c > grid_cols {
+            return;
         }
-        if new_col + p.col_span <= self.config.grid.columns {
-            p.column = new_col;
+
+        // Build proposed position for the mover
+        let mut proposed: Vec<(usize, u16, u16, u16, u16)> = Vec::new();
+        proposed.push((idx, new_row, new_col, span_r, span_c));
+
+        // Find ALL components that overlap with our target position
+        // and compute their displaced positions
+        for (ci, c) in self.components.iter().enumerate() {
+            if ci == idx || !c.visible {
+                continue;
+            }
+            let cp = &c.placement;
+            if !rects_overlap((new_row, new_col, span_r, span_c), (cp.row, cp.column, cp.row_span, cp.col_span)) {
+                continue;
+            }
+            let disp_row = (cp.row as i16 - dr).max(0) as u16;
+            let disp_col = (cp.column as i16 - dc).max(0) as u16;
+
+            // Bounds check for displaced component
+            if disp_row + cp.row_span > grid_rows || disp_col + cp.col_span > grid_cols {
+                return;
+            }
+            proposed.push((ci, disp_row, disp_col, cp.row_span, cp.col_span));
+        }
+
+        // Collect which components are being moved
+        let affected: Vec<usize> = proposed.iter().map(|&(i, ..)| i).collect();
+
+        // Check that no proposed position overlaps with another proposed position
+        // or with any uninvolved component
+        for (a, &(_, r1, c1, rs1, cs1)) in proposed.iter().enumerate() {
+            let rect_a = (r1, c1, rs1, cs1);
+            for &(_, r2, c2, rs2, cs2) in &proposed[a + 1..] {
+                if rects_overlap(rect_a, (r2, c2, rs2, cs2)) {
+                    return; // displaced components would overlap each other
+                }
+            }
+            for (ci, c) in self.components.iter().enumerate() {
+                if affected.contains(&ci) || !c.visible {
+                    continue;
+                }
+                let cp = &c.placement;
+                if rects_overlap(rect_a, (cp.row, cp.column, cp.row_span, cp.col_span)) {
+                    return; // would overlap an uninvolved component
+                }
+            }
+        }
+
+        // All checks passed, apply moves
+        for &(mi, new_r, new_c, _, _) in &proposed {
+            self.components[mi].placement.row = new_r;
+            self.components[mi].placement.column = new_c;
+        }
+
+        // Keep focus on the component we just moved
+        let vis = self.visible_components();
+        if let Some(new_fi) = vis.iter().position(|&ci| ci == idx) {
+            self.focused_index = new_fi;
         }
     }
 
@@ -578,26 +605,6 @@ impl App {
             resize_between(&self.config.grid.columns, &mut self.config.grid.column_widths, c, neighbor);
         } else {
             resize_between(&self.config.grid.columns, &mut self.config.grid.column_widths, neighbor, c);
-        }
-    }
-
-    /// Adjusts a component's row_span or col_span.
-    fn adjust_span(&mut self, idx: usize, vertical: bool, grow: bool) {
-        let p = &mut self.components[idx].placement;
-        if vertical {
-            if grow {
-                if p.row + p.row_span < self.config.grid.rows {
-                    p.row_span += 1;
-                }
-            } else if p.row_span > 1 {
-                p.row_span -= 1;
-            }
-        } else if grow {
-            if p.column + p.col_span < self.config.grid.columns {
-                p.col_span += 1;
-            }
-        } else if p.col_span > 1 {
-            p.col_span -= 1;
         }
     }
 
@@ -742,6 +749,10 @@ impl App {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
+
+fn rects_overlap(a: (u16, u16, u16, u16), b: (u16, u16, u16, u16)) -> bool {
+    a.0 < b.0 + b.2 && a.0 + a.2 > b.0 && a.1 < b.1 + b.3 && a.1 + a.3 > b.1
+}
 
 fn next_date_preset(current: &str) -> String {
     let presets = constants::DATE_FORMAT_PRESETS;

@@ -42,8 +42,12 @@ pub fn render(frame: &mut Frame, area: Rect, is_focused: bool, is_editing: bool,
         let mut spans: Vec<Span> = Vec::new();
 
         for col in 0..7 {
+            if col > 0 {
+                spans.push(Span::raw(" "));
+            }
+
             if (week_row == 0 && col < start_weekday) || day > days_in_month {
-                spans.push(Span::raw("   "));
+                spans.push(Span::raw("  "));
             } else {
                 let is_today = day == today.day();
                 let day_str = format!("{day:>2}");
@@ -59,15 +63,6 @@ pub fn render(frame: &mut Frame, area: Rect, is_focused: bool, is_editing: bool,
 
                 spans.push(Span::styled(day_str, style));
                 day += 1;
-
-                if col < 6 && day <= days_in_month + 1 {
-                    spans.push(Span::raw(" "));
-                    continue;
-                }
-            }
-
-            if col < 6 {
-                spans.push(Span::raw(" "));
             }
         }
 
@@ -75,8 +70,20 @@ pub fn render(frame: &mut Frame, area: Rect, is_focused: bool, is_editing: bool,
         week_row += 1;
     }
 
+    let content_height = lines.len() as u16;
+    let content_width = DAYS_HEADER.len() as u16;
     let paragraph = Paragraph::new(lines).alignment(Alignment::Left);
-    frame.render_widget(paragraph, inner);
+
+    let x_offset = inner.width.saturating_sub(content_width) / 2;
+    let y_offset = inner.height.saturating_sub(content_height) / 2;
+    let centered = Rect {
+        x: inner.x + x_offset,
+        y: inner.y + y_offset,
+        width: content_width.min(inner.width),
+        height: inner.height.saturating_sub(y_offset),
+    };
+
+    frame.render_widget(paragraph, centered);
 }
 
 fn month_name(month: u32) -> &'static str {
