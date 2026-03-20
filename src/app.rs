@@ -54,28 +54,34 @@ pub struct ContextMenuItem {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontStyle {
-    Standard,
-    Big,
-    Small,
-    Slant,
-    SmBlock,
-    Mono12,
-    Future,
-    Wideterm,
-    Mono9,
+    Block,
+    Slick,
+    Tiny,
+    Grid,
+    Pallet,
+    Shade,
+    Chrome,
+    Simple,
+    SimpleBlock,
+    Simple3d,
+    Huge,
+    Console,
 }
 
 impl FontStyle {
     const ALL: &[Self] = &[
-        Self::Standard,
-        Self::Big,
-        Self::Small,
-        Self::Slant,
-        Self::SmBlock,
-        Self::Mono12,
-        Self::Future,
-        Self::Wideterm,
-        Self::Mono9,
+        Self::Block,
+        Self::Slick,
+        Self::Tiny,
+        Self::Grid,
+        Self::Pallet,
+        Self::Shade,
+        Self::Chrome,
+        Self::Simple,
+        Self::SimpleBlock,
+        Self::Simple3d,
+        Self::Huge,
+        Self::Console,
     ];
 
     pub fn next(self) -> Self {
@@ -90,24 +96,42 @@ impl FontStyle {
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::Standard => "Standard",
-            Self::Big => "Big",
-            Self::Small => "Small",
-            Self::Slant => "Slant",
-            Self::SmBlock => "SmBlock",
-            Self::Mono12 => "Mono12",
-            Self::Future => "Future",
-            Self::Wideterm => "Wideterm",
-            Self::Mono9 => "Mono9",
+            Self::Block => "Block",
+            Self::Slick => "Slick",
+            Self::Tiny => "Tiny",
+            Self::Grid => "Grid",
+            Self::Pallet => "Pallet",
+            Self::Shade => "Shade",
+            Self::Chrome => "Chrome",
+            Self::Simple => "Simple",
+            Self::SimpleBlock => "SimpleBlock",
+            Self::Simple3d => "Simple3D",
+            Self::Huge => "Huge",
+            Self::Console => "Console",
         }
     }
 
     pub fn from_name(name: &str) -> Self {
-        Self::ALL
+        // First try exact match against current names
+        if let Some(&style) = Self::ALL
             .iter()
             .find(|s| s.name().eq_ignore_ascii_case(name))
-            .copied()
-            .unwrap_or(Self::Standard)
+        {
+            return style;
+        }
+
+        // Backwards compat: map old figlet/toilet font names
+        match name {
+            "Standard" | "Mono12" => Self::Block,
+            "Big" => Self::Huge,
+            "Small" => Self::Tiny,
+            "Slant" => Self::Slick,
+            "SmBlock" => Self::SimpleBlock,
+            "Future" => Self::Chrome,
+            "Wideterm" => Self::Grid,
+            "Mono9" => Self::Console,
+            _ => Self::Block,
+        }
     }
 }
 
@@ -647,7 +671,7 @@ impl App {
                         return font_style.name();
                     }
         }
-        "Standard"
+        "Block"
     }
 
     /// Sync runtime state back to config and save.

@@ -1,6 +1,5 @@
 use chrono::{Local, Utc};
 use chrono_tz::Tz;
-use figlet_rs::{FIGlet, Toilet};
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -205,33 +204,22 @@ fn local_timezone_name() -> String {
     Local::now().format("%Z").to_string()
 }
 
-// ── FIGlet rendering ────────────────────────────────────────────────
+// ── cfonts rendering ─────────────────────────────────────────────────
 
-enum Font {
-    Figlet(FIGlet),
-    Toilet(Toilet),
-}
-
-impl Font {
-    fn convert(&self, text: &str) -> Option<String> {
-        match self {
-            Self::Figlet(f) => f.convert(text).map(|fig| fig.to_string()),
-            Self::Toilet(t) => t.convert(text).map(|fig| fig.to_string()),
-        }
-    }
-}
-
-fn load_font(style: FontStyle) -> Option<Font> {
+fn to_cfonts_font(style: FontStyle) -> cfonts::Fonts {
     match style {
-        FontStyle::Standard => FIGlet::standard().ok().map(Font::Figlet),
-        FontStyle::Big => FIGlet::big().ok().map(Font::Figlet),
-        FontStyle::Small => FIGlet::small().ok().map(Font::Figlet),
-        FontStyle::Slant => FIGlet::slant().ok().map(Font::Figlet),
-        FontStyle::SmBlock => Toilet::smblock().ok().map(Font::Toilet),
-        FontStyle::Mono12 => Toilet::mono12().ok().map(Font::Toilet),
-        FontStyle::Future => Toilet::future().ok().map(Font::Toilet),
-        FontStyle::Wideterm => Toilet::wideterm().ok().map(Font::Toilet),
-        FontStyle::Mono9 => Toilet::mono9().ok().map(Font::Toilet),
+        FontStyle::Block => cfonts::Fonts::FontBlock,
+        FontStyle::Slick => cfonts::Fonts::FontSlick,
+        FontStyle::Tiny => cfonts::Fonts::FontTiny,
+        FontStyle::Grid => cfonts::Fonts::FontGrid,
+        FontStyle::Pallet => cfonts::Fonts::FontPallet,
+        FontStyle::Shade => cfonts::Fonts::FontShade,
+        FontStyle::Chrome => cfonts::Fonts::FontChrome,
+        FontStyle::Simple => cfonts::Fonts::FontSimple,
+        FontStyle::SimpleBlock => cfonts::Fonts::FontSimpleBlock,
+        FontStyle::Simple3d => cfonts::Fonts::FontSimple3d,
+        FontStyle::Huge => cfonts::Fonts::FontHuge,
+        FontStyle::Console => cfonts::Fonts::FontConsole,
     }
 }
 
@@ -242,30 +230,39 @@ fn render_figlet_clock(
     style: FontStyle,
     color: Color,
 ) {
-    let Some(font) = load_font(style) else {
-        render_plain_fallback(frame, area, time_str, color);
-        return;
-    };
+    let output = cfonts::render(cfonts::Options {
+        text: String::from(time_str),
+        font: to_cfonts_font(style),
+        spaceless: true,
+        max_length: area.width,
+        ..cfonts::Options::default()
+    });
 
-    let Some(art) = font.convert(time_str) else {
-        render_plain_fallback(frame, area, time_str, color);
-        return;
-    };
+    let raw_lines: Vec<&str> = output.vec.iter().map(|s| s.as_str()).collect();
 
-    // Clamp to available height to prevent overflow into adjacent panels
-    let max_lines = area.height as usize;
-    let lines: Vec<Line> = art
-        .lines()
-        .filter(|l| !l.is_empty() || art.lines().count() <= max_lines)
-        .take(max_lines)
-        .map(|l: &str| Line::styled(l.to_string(), Style::default().fg(color)))
-        .collect();
+    // Strip trailing empty lines
+    let trimmed = raw_lines
+        .iter()
+        .rev()
+        .skip_while(|l| l.trim().is_empty())
+        .count();
+    let visible = &raw_lines[..trimmed];
 
-    // Fallback to plain text if FIGlet produced no visible lines
-    if lines.is_empty() {
-        render_plain_fallback(frame, area, time_str, color);
+    if visible.is_empty() {
+        let line = Line::styled(time_str, Style::default().fg(color));
+        frame.render_widget(
+            Paragraph::new(line).alignment(Alignment::Center),
+            area,
+        );
         return;
     }
+
+    let max_lines = area.height as usize;
+    let lines: Vec<Line> = visible
+        .iter()
+        .take(max_lines)
+        .map(|l| Line::styled(l.to_string(), Style::default().fg(color)))
+        .collect();
 
     let content_height = lines.len() as u16;
     let y_offset = area.height.saturating_sub(content_height) / 2;
@@ -280,13 +277,5 @@ fn render_figlet_clock(
     frame.render_widget(
         Paragraph::new(lines).alignment(Alignment::Center),
         centered,
-    );
-}
-
-fn render_plain_fallback(frame: &mut Frame, area: Rect, time_str: &str, color: Color) {
-    let line = Line::styled(time_str, Style::default().fg(color));
-    frame.render_widget(
-        Paragraph::new(line).alignment(Alignment::Center),
-        area,
     );
 }

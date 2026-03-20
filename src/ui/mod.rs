@@ -127,7 +127,7 @@ fn render_component(frame: &mut Frame, area: Rect, app: &App, idx: usize, is_foc
             {
                 *font_style
             } else {
-                FontStyle::Standard
+                FontStyle::Block
             };
 
             clock::render(

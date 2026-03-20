@@ -27,7 +27,7 @@ pub const DEFAULT_WEATHER_REFRESH_MINUTES: u64 = 30;
 pub const DEFAULT_STATS_REFRESH_SECONDS: u64 = 5;
 
 // Font
-pub const DEFAULT_FONT_STYLE: &str = "Standard";
+pub const DEFAULT_FONT_STYLE: &str = "Block";
 
 // Date format
 pub const DEFAULT_DATE_FORMAT: &str = "%A, %B %d, %Y";
