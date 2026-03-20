@@ -24,6 +24,7 @@ pub enum UiMode {
     ContextMenu,
     VisibilityMenu,
     AddComponentMenu,
+    ColorMenu,
     Help,
 }
 
@@ -39,6 +40,7 @@ pub enum MenuAction {
     SpanFewerRows,
     SpanMoreCols,
     SpanFewerCols,
+    ChangeColors,
     Remove,
 }
 
@@ -194,6 +196,31 @@ pub fn parse_color(s: &str) -> Color {
         "light_magenta" | "lightmagenta" => Color::LightMagenta,
         "light_cyan" | "lightcyan" => Color::LightCyan,
         _ => Color::White, // fallback
+    }
+}
+
+/// Converts any `Color` variant to an `(u8, u8, u8)` RGB tuple.
+/// Named terminal colors are mapped to their standard xterm RGB values.
+pub fn color_to_rgb(c: Color) -> (u8, u8, u8) {
+    match c {
+        Color::Rgb(r, g, b) => (r, g, b),
+        Color::Black => (0, 0, 0),
+        Color::Red => (205, 0, 0),
+        Color::Green => (0, 205, 0),
+        Color::Yellow => (205, 205, 0),
+        Color::Blue => (0, 0, 238),
+        Color::Magenta => (205, 0, 205),
+        Color::Cyan => (0, 205, 205),
+        Color::White => (255, 255, 255),
+        Color::Gray => (128, 128, 128),
+        Color::DarkGray => (85, 85, 85),
+        Color::LightRed => (255, 85, 85),
+        Color::LightGreen => (85, 255, 85),
+        Color::LightYellow => (255, 255, 85),
+        Color::LightBlue => (85, 85, 255),
+        Color::LightMagenta => (255, 85, 255),
+        Color::LightCyan => (85, 255, 255),
+        _ => (255, 255, 255),
     }
 }
 
@@ -418,6 +445,10 @@ impl App {
                     action: MenuAction::ToggleBlink,
                 });
             }
+            items.push(ContextMenuItem {
+                label: "Colors".into(),
+                action: MenuAction::ChangeColors,
+            });
         }
 
         // Span controls (merge/unmerge cells)
@@ -492,6 +523,11 @@ impl App {
             MenuAction::SpanFewerRows => self.adjust_span(idx, true, false),
             MenuAction::SpanMoreCols => self.adjust_span(idx, false, true),
             MenuAction::SpanFewerCols => self.adjust_span(idx, false, false),
+            MenuAction::ChangeColors => {
+                self.menu_cursor = 0;
+                self.ui_mode = UiMode::ColorMenu;
+                return; // don't reset to Normal
+            }
             MenuAction::Remove => {
                 self.remove_component(idx);
             }
@@ -613,6 +649,18 @@ impl App {
 
     pub fn toggle_component_visibility(&mut self, idx: usize) {
         self.components[idx].visible = !self.components[idx].visible;
+    }
+
+    /// Apply a color preset to the focused clock component.
+    pub fn apply_color_preset(&mut self, preset_index: usize) {
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        if let ComponentConfig::Clock(ref mut s) = self.components[idx].config
+            && let Some(&(_, colors)) = constants::COLOR_PRESETS.get(preset_index)
+        {
+            s.colors = colors.iter().map(|&c| c.to_string()).collect();
+        }
     }
 
     /// Toggle time format for the focused component (if it's a clock).

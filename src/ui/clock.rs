@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{FontStyle, ResolvedTheme};
+use crate::app::{color_to_rgb, parse_color, FontStyle, ResolvedTheme};
 use crate::component::{ClockSettings, ClockStyle};
 use crate::ui;
 
@@ -70,7 +70,12 @@ fn render_large(
     };
 
     let time_str = format_time(settings, colon_visible);
-    render_figlet_clock(frame, chunks[0], &time_str, font_style, theme.primary);
+    let colors: Vec<Color> = if settings.colors.is_empty() {
+        vec![theme.primary]
+    } else {
+        settings.colors.iter().map(|s| parse_color(s)).collect()
+    };
+    render_figlet_clock(frame, chunks[0], &time_str, font_style, &colors);
 
     let date_str = format_date(settings);
     let date_line = Line::from(Span::styled(
@@ -115,11 +120,17 @@ fn render_compact(
     let time_str = format_time(settings, true);
     let date_str = format_date(settings);
 
+    let time_color = if settings.colors.is_empty() {
+        theme.secondary
+    } else {
+        parse_color(&settings.colors[0])
+    };
+
     let lines = vec![
         Line::from(Span::styled(
             time_str,
             Style::default()
-                .fg(theme.secondary)
+                .fg(time_color)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
@@ -223,13 +234,38 @@ fn to_cfonts_font(style: FontStyle) -> cfonts::Fonts {
     }
 }
 
+/// Interpolates across an arbitrary number of color stops.
+/// Maps `index` (0..total-1) onto the gradient defined by `colors`.
+pub fn lerp_color(colors: &[Color], index: usize, total: usize) -> Color {
+    if colors.len() < 2 || total <= 1 {
+        return colors[0];
+    }
+
+    let segments = colors.len() - 1;
+    let t = index as f32 / (total - 1) as f32;
+    let scaled = t * segments as f32;
+    let seg = (scaled as usize).min(segments - 1);
+    let local_t = scaled - seg as f32;
+
+    let (r1, g1, b1) = color_to_rgb(colors[seg]);
+    let (r2, g2, b2) = color_to_rgb(colors[seg + 1]);
+    Color::Rgb(
+        (r1 as f32 + (r2 as f32 - r1 as f32) * local_t) as u8,
+        (g1 as f32 + (g2 as f32 - g1 as f32) * local_t) as u8,
+        (b1 as f32 + (b2 as f32 - b1 as f32) * local_t) as u8,
+    )
+}
+
 fn render_figlet_clock(
     frame: &mut Frame,
     area: Rect,
     time_str: &str,
     style: FontStyle,
-    color: Color,
+    colors: &[Color],
 ) {
+    // Suppress ANSI escape codes from cfonts so we get plain text
+    // that we can style with ratatui theme colors.
+    unsafe { std::env::set_var("NO_COLOR", "1") };
     let output = cfonts::render(cfonts::Options {
         text: String::from(time_str),
         font: to_cfonts_font(style),
@@ -237,6 +273,7 @@ fn render_figlet_clock(
         max_length: area.width,
         ..cfonts::Options::default()
     });
+    unsafe { std::env::remove_var("NO_COLOR") };
 
     let raw_lines: Vec<&str> = output.vec.iter().map(|s| s.as_str()).collect();
 
@@ -249,7 +286,7 @@ fn render_figlet_clock(
     let visible = &raw_lines[..trimmed];
 
     if visible.is_empty() {
-        let line = Line::styled(time_str, Style::default().fg(color));
+        let line = Line::styled(time_str, Style::default().fg(colors[0]));
         frame.render_widget(
             Paragraph::new(line).alignment(Alignment::Center),
             area,
@@ -258,10 +295,12 @@ fn render_figlet_clock(
     }
 
     let max_lines = area.height as usize;
+    let total = visible.len().min(max_lines);
     let lines: Vec<Line> = visible
         .iter()
         .take(max_lines)
-        .map(|l| Line::styled(l.to_string(), Style::default().fg(color)))
+        .enumerate()
+        .map(|(i, l)| Line::styled(l.to_string(), Style::default().fg(lerp_color(colors, i, total))))
         .collect();
 
     let content_height = lines.len() as u16;

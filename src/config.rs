@@ -353,6 +353,7 @@ impl AppConfig {
                 timezone: None,
                 label: None,
                 font_style: constants::DEFAULT_FONT_STYLE.to_string(),
+                colors: Vec::new(),
             }),
             visible: true,
         };
@@ -379,6 +380,7 @@ impl AppConfig {
                     timezone: Some(sec_cfg.timezone),
                     label: Some(sec_cfg.label),
                     font_style: constants::DEFAULT_FONT_STYLE.to_string(),
+                    colors: Vec::new(),
                 }),
                 visible: true,
             };

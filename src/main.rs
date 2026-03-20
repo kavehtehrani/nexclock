@@ -23,10 +23,6 @@ use config::AppConfig;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    // Suppress ANSI escape codes from cfonts so we get plain text
-    // that we can style with ratatui theme colors.
-    unsafe { std::env::set_var("NO_COLOR", "1") };
-
     let config = AppConfig::load();
 
     let _guard = init_logging();

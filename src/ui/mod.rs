@@ -13,9 +13,9 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, ComponentRuntime, FontStyle, ResolvedTheme, UiMode};
+use crate::app::{parse_color, App, ComponentRuntime, FontStyle, ResolvedTheme, UiMode};
 use crate::component::{ClockStyle, ComponentConfig, ComponentType};
-use crate::constants::{MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, STATUS_BAR_HEIGHT};
+use crate::constants::{self, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, STATUS_BAR_HEIGHT};
 use crate::data::weather_api::WeatherData;
 
 /// Returns a bordered block with the given title, highlighted if focused.
@@ -111,6 +111,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         UiMode::ContextMenu => render_context_menu(frame, app, area),
         UiMode::VisibilityMenu => render_visibility_menu(frame, app, area),
         UiMode::AddComponentMenu => render_add_menu(frame, app, area),
+        UiMode::ColorMenu => render_color_menu(frame, app, area),
         UiMode::Normal | UiMode::EditMode => {}
     }
 }
@@ -216,6 +217,9 @@ fn render_context_menu(frame: &mut Frame, app: &App, area: Rect) {
     let items = &app.context_menu_items;
     let theme = &app.theme;
 
+    let popup_width: u16 = 35;
+    let inner_w = (popup_width - 2) as usize;
+
     let mut lines: Vec<Line> = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
         let style = if i == cursor {
@@ -226,25 +230,28 @@ fn render_context_menu(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             Style::default().fg(theme.text)
         };
-        lines.push(Line::styled(format!(" {} ", item.label), style));
+        lines.push(Line::styled(format!(" {:<w$}", item.label, w = inner_w - 1), style));
     }
 
     let title = app
         .focused_component()
         .map(|c| c.config.component_type().label().to_string())
         .unwrap_or_else(|| "Menu".to_string());
-    render_popup(frame, area, &title, &lines, 35);
+    render_popup(frame, area, &title, &lines, popup_width);
 }
 
 fn render_visibility_menu(frame: &mut Frame, app: &App, area: Rect) {
     let cursor = app.menu_cursor;
     let theme = &app.theme;
 
+    let popup_width: u16 = 40;
+    let inner_w = (popup_width - 2) as usize;
+
     let mut lines: Vec<Line> = Vec::with_capacity(app.components.len());
     for (i, comp) in app.components.iter().enumerate() {
         let checked = if comp.visible { "x" } else { " " };
         let type_label = comp.config.component_type().label();
-        let label = format!(" [{checked}] {} ({}) ", comp.id, type_label);
+        let label = format!("[{checked}] {} ({type_label})", comp.id);
         let style = if i == cursor {
             Style::default()
                 .fg(Color::Black)
@@ -253,7 +260,7 @@ fn render_visibility_menu(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             Style::default().fg(theme.text)
         };
-        lines.push(Line::styled(label, style));
+        lines.push(Line::styled(format!(" {label:<w$}", w = inner_w - 1), style));
     }
 
     lines.push(Line::from(""));
@@ -262,12 +269,15 @@ fn render_visibility_menu(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(theme.muted),
     )));
 
-    render_popup(frame, area, " Components ", &lines, 40);
+    render_popup(frame, area, " Components ", &lines, popup_width);
 }
 
 fn render_add_menu(frame: &mut Frame, app: &App, area: Rect) {
     let cursor = app.menu_cursor;
     let theme = &app.theme;
+
+    let popup_width: u16 = 30;
+    let inner_w = (popup_width - 2) as usize;
 
     let options = add_menu_options();
     let mut lines: Vec<Line> = Vec::with_capacity(options.len());
@@ -280,7 +290,7 @@ fn render_add_menu(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             Style::default().fg(theme.text)
         };
-        lines.push(Line::styled(format!(" {label} "), style));
+        lines.push(Line::styled(format!(" {label:<w$}", w = inner_w - 1), style));
     }
 
     lines.push(Line::from(""));
@@ -289,7 +299,87 @@ fn render_add_menu(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(theme.muted),
     )));
 
-    render_popup(frame, area, " Add Component ", &lines, 30);
+    render_popup(frame, area, " Add Component ", &lines, popup_width);
+}
+
+/// Number of rows in the two-column color menu layout.
+pub fn color_menu_rows() -> usize {
+    constants::COLOR_PRESETS.len().div_ceil(2)
+}
+
+fn render_color_menu(frame: &mut Frame, app: &App, area: Rect) {
+    let cursor = app.menu_cursor;
+    let theme = &app.theme;
+    let presets = constants::COLOR_PRESETS;
+    let count = presets.len();
+    let rows = color_menu_rows();
+
+    let bar_width: usize = 12;
+    // layout: " " + indicator + bar + "   " + indicator + bar + " "
+    let inner_w = 1 + 1 + bar_width + 3 + 1 + bar_width + 1;
+    let popup_width = (inner_w + 2) as u16;
+
+    let in_right = cursor >= rows;
+    let cursor_row = if in_right { cursor - rows } else { cursor };
+
+    let indicator_style = Style::default()
+        .fg(theme.focus)
+        .add_modifier(Modifier::BOLD);
+
+    let mut lines: Vec<Line> = Vec::with_capacity(rows + 2);
+    for row in 0..rows {
+        let left_idx = row;
+        let right_idx = rows + row;
+
+        let mut spans = Vec::new();
+
+        // Left column
+        let left_selected = !in_right && row == cursor_row;
+        spans.push(Span::styled(
+            if left_selected { " \u{25b8}" } else { "  " },
+            indicator_style,
+        ));
+        append_gradient_bar(&mut spans, presets[left_idx].1, bar_width, theme);
+
+        // Gap between columns
+        spans.push(Span::raw("   "));
+
+        // Right column
+        if right_idx < count {
+            let right_selected = in_right && row == cursor_row;
+            spans.push(Span::styled(
+                if right_selected { "\u{25b8}" } else { " " },
+                indicator_style,
+            ));
+            append_gradient_bar(&mut spans, presets[right_idx].1, bar_width, theme);
+            spans.push(Span::raw(" "));
+        } else {
+            spans.push(Span::raw(" ".repeat(1 + bar_width + 1)));
+        }
+
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Esc to cancel ",
+        Style::default().fg(theme.muted),
+    )));
+
+    render_popup(frame, area, " Colors ", &lines, popup_width);
+}
+
+fn append_gradient_bar(spans: &mut Vec<Span<'static>>, colors: &[&str], width: usize, theme: &ResolvedTheme) {
+    let resolved: Vec<Color> = if colors.is_empty() {
+        vec![theme.primary]
+    } else {
+        colors.iter().map(|&c| parse_color(c)).collect()
+    };
+
+    for i in 0..width {
+        let color = clock::lerp_color(&resolved, i, width);
+        spans.push(Span::styled("\u{2588}", Style::default().fg(color)));
+    }
 }
 
 /// Returns the list of add-menu options: (label, ComponentType, Option<ClockStyle>).

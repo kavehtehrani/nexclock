@@ -40,6 +40,58 @@ pub const DATE_FORMAT_PRESETS: &[&str] = &[
     "%d %b %Y",       // 19 Mar 2026
 ];
 
+// Color gradient presets: (label, &[color_strings])
+// Empty slice means "reset to theme default"
+pub const COLOR_PRESETS: &[(&str, &[&str])] = &[
+    // Reset
+    ("Theme default", &[]),
+    // Solid colors
+    ("Cyan", &["cyan"]),
+    ("Green", &["green"]),
+    ("Yellow", &["yellow"]),
+    ("Magenta", &["magenta"]),
+    ("Red", &["red"]),
+    ("White", &["white"]),
+    // Warm gradients
+    ("Sunset", &["#FF6B35", "#FFD700"]),
+    ("Fire", &["#FF4500", "#FFD700"]),
+    ("Ember", &["#FF4500", "#FF8C00", "#FFD700"]),
+    ("Coral", &["#FF6F61", "#FFB347"]),
+    ("Peach", &["#FFAB91", "#FFE0B2"]),
+    ("Amber", &["#FF8F00", "#FFD54F"]),
+    // Cool gradients
+    ("Ocean", &["#00CED1", "#1E90FF"]),
+    ("Ice", &["#E0FFFF", "#4169E1"]),
+    ("Teal", &["#00BFA5", "#00838F"]),
+    ("Steel", &["#B0BEC5", "#546E7A"]),
+    ("Arctic", &["#80DEEA", "#0097A7"]),
+    // Nature
+    ("Forest", &["#00FF7F", "#228B22"]),
+    ("Mint", &["#B2FFD6", "#00C853"]),
+    ("Aurora", &["#00FF7F", "#00CED1", "#9370DB"]),
+    ("Spring", &["#76FF03", "#FFEB3B"]),
+    // Neon / vibrant
+    ("Neon", &["#FF00FF", "#00FFFF"]),
+    ("Synthwave", &["#FF00FF", "#7B2FBE", "#00FFFF"]),
+    ("Vaporwave", &["#FF71CE", "#01CDFE"]),
+    ("Cyberpunk", &["#F706CF", "#FFF700"]),
+    ("Matrix", &["#003B00", "#00FF41"]),
+    // Purple
+    ("Lavender", &["#E066FF", "#836FFF"]),
+    ("Grape", &["#9C27B0", "#E040FB"]),
+    ("Twilight", &["#4A148C", "#CE93D8"]),
+    // Pastel
+    ("Cotton Candy", &["#FFB6C1", "#B5EAD7"]),
+    ("Bubblegum", &["#FF9AA2", "#FFB7B2", "#FFDAC1"]),
+    ("Dreamy", &["#C5CAE9", "#F8BBD0"]),
+    // Monochrome
+    ("Silver", &["#E0E0E0", "#757575"]),
+    ("Gold", &["#FFD700", "#B8860B"]),
+    // Multi-stop
+    ("Rainbow", &["#FF0000", "#FF8C00", "#FFFF00", "#00FF00", "#0000FF", "#8B00FF"]),
+    ("Heatmap", &["#0000FF", "#00FFFF", "#00FF00", "#FFFF00", "#FF0000"]),
+];
+
 // Grid defaults
 pub const DEFAULT_GRID_ROWS: u16 = 3;
 pub const DEFAULT_GRID_COLUMNS: u16 = 2;

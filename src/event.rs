@@ -32,6 +32,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         UiMode::ContextMenu => handle_context_menu_key(app, key.code),
         UiMode::VisibilityMenu => handle_visibility_menu_key(app, key.code),
         UiMode::AddComponentMenu => handle_add_menu_key(app, key.code),
+        UiMode::ColorMenu => handle_color_menu_key(app, key.code),
         UiMode::Help => {
             app.ui_mode = UiMode::Normal;
         }
@@ -205,6 +206,53 @@ fn handle_add_menu_key(app: &mut App, code: KeyCode) {
             }
         }
         KeyCode::Esc | KeyCode::Char('a') | KeyCode::Char('A') => {
+            app.ui_mode = UiMode::Normal;
+        }
+        _ => {}
+    }
+}
+
+fn handle_color_menu_key(app: &mut App, code: KeyCode) {
+    let count = crate::constants::COLOR_PRESETS.len();
+    let rows = ui::color_menu_rows();
+    let in_right = app.menu_cursor >= rows;
+
+    match code {
+        KeyCode::Up => {
+            if in_right {
+                if app.menu_cursor > rows {
+                    app.menu_cursor -= 1;
+                }
+            } else if app.menu_cursor > 0 {
+                app.menu_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            let next = app.menu_cursor + 1;
+            if in_right {
+                if next < count {
+                    app.menu_cursor = next;
+                }
+            } else if next < rows {
+                app.menu_cursor = next;
+            }
+        }
+        KeyCode::Left => {
+            if in_right {
+                app.menu_cursor -= rows;
+            }
+        }
+        KeyCode::Right => {
+            let target = app.menu_cursor + rows;
+            if !in_right && target < count {
+                app.menu_cursor = target;
+            }
+        }
+        KeyCode::Enter => {
+            app.apply_color_preset(app.menu_cursor);
+            app.ui_mode = UiMode::Normal;
+        }
+        KeyCode::Esc => {
             app.ui_mode = UiMode::Normal;
         }
         _ => {}

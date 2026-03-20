@@ -90,6 +90,8 @@ pub struct ClockSettings {
     pub label: Option<String>,
     #[serde(default = "default_font_style")]
     pub font_style: String,
+    #[serde(default)]
+    pub colors: Vec<String>,
 }
 
 impl Default for ClockSettings {
@@ -103,6 +105,7 @@ impl Default for ClockSettings {
             timezone: None,
             label: None,
             font_style: default_font_style(),
+            colors: Vec::new(),
         }
     }
 }
@@ -279,6 +282,14 @@ impl ComponentEntry {
                 }
                 if let Some(label) = &s.label {
                     table.insert("label".to_string(), toml::Value::String(label.clone()));
+                }
+                if !s.colors.is_empty() {
+                    table.insert(
+                        "colors".to_string(),
+                        toml::Value::Array(
+                            s.colors.iter().map(|c| toml::Value::String(c.clone())).collect(),
+                        ),
+                    );
                 }
             }
             ComponentConfig::Weather(s) => {
