@@ -64,7 +64,7 @@ fn render_large(
     let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
 
     let colon_visible = if settings.blink_separator {
-        tick_count.is_multiple_of(2)
+        tick_count.is_multiple_of(4)
     } else {
         true
     };
