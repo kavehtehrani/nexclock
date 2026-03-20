@@ -35,6 +35,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         UiMode::ColorMenu => handle_color_menu_key(app, key.code),
         UiMode::TimezoneSearch => handle_tz_search_key(app, key.code),
         UiMode::TimezoneRemoveMenu => handle_tz_remove_menu_key(app, key.code),
+        UiMode::TimezoneReorderMenu => handle_tz_reorder_key(app, key),
         UiMode::Help => {
             app.ui_mode = UiMode::Normal;
         }
@@ -316,6 +317,38 @@ fn handle_tz_remove_menu_key(app: &mut App, code: KeyCode) {
                 } else if app.menu_cursor >= new_count {
                     app.menu_cursor = new_count - 1;
                 }
+            }
+        }
+        KeyCode::Esc => {
+            app.ui_mode = UiMode::Normal;
+        }
+        _ => {}
+    }
+}
+
+fn handle_tz_reorder_key(app: &mut App, key: KeyEvent) {
+    let count = app.focused_world_clock_timezones().len();
+    let shifted = key.modifiers.contains(KeyModifiers::SHIFT);
+
+    match key.code {
+        KeyCode::Up => {
+            if shifted {
+                if app.menu_cursor > 0 {
+                    app.swap_timezone(app.menu_cursor, -1);
+                    app.menu_cursor -= 1;
+                }
+            } else if app.menu_cursor > 0 {
+                app.menu_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if shifted {
+                if app.menu_cursor + 1 < count {
+                    app.swap_timezone(app.menu_cursor, 1);
+                    app.menu_cursor += 1;
+                }
+            } else if app.menu_cursor < count.saturating_sub(1) {
+                app.menu_cursor += 1;
             }
         }
         KeyCode::Esc => {

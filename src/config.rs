@@ -8,7 +8,7 @@ use tracing::{info, warn};
 
 use crate::component::{
     parse_component, rects_overlap, CalendarSettings, ClockSettings, ClockStyle, ComponentConfig,
-    ComponentEntry, GridPlacement, SystemStatsSettings, WeatherSettings,
+    ComponentEntry, GridPlacement, SystemStatsSettings, WeatherSettings, WorldClockSettings,
 };
 use crate::constants;
 use crate::defaults::{
@@ -646,23 +646,14 @@ fn default_components() -> BTreeMap<String, toml::Table> {
             visible: true,
         },
         ComponentEntry {
-            id: "ny_clock".to_string(),
+            id: "world_clock".to_string(),
             placement: GridPlacement {
                 row: 1,
                 column: 0,
                 row_span: 1,
                 col_span: 1,
             },
-            config: ComponentConfig::Clock(ClockSettings {
-                style: ClockStyle::Compact,
-                timezone: Some("US/Eastern".to_string()),
-                label: Some("New York".to_string()),
-                time_format: "12h".to_string(),
-                date_format: constants::DEFAULT_SECONDARY_DATE_FORMAT.to_string(),
-                show_seconds: false,
-                blink_separator: false,
-                ..ClockSettings::default()
-            }),
+            config: ComponentConfig::WorldClock(WorldClockSettings::default()),
             visible: true,
         },
         ComponentEntry {

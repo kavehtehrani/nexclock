@@ -122,8 +122,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     // Status bar
     let ip = app.external_ip();
-    let font_name = app.active_font_name();
-    status_bar::render(frame, status_area, &ip, font_name, is_edit_mode, &app.theme);
+    status_bar::render(frame, status_area, &ip, is_edit_mode, &app.theme);
 
     // Overlays
     match app.ui_mode {
@@ -134,6 +133,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         UiMode::ColorMenu => render_color_menu(frame, app, area),
         UiMode::TimezoneSearch => render_tz_search(frame, app, area),
         UiMode::TimezoneRemoveMenu => render_tz_remove_menu(frame, app, area),
+        UiMode::TimezoneReorderMenu => render_tz_reorder_menu(frame, app, area),
         UiMode::Normal | UiMode::EditMode => {}
     }
 }
@@ -505,6 +505,36 @@ fn render_tz_remove_menu(frame: &mut Frame, app: &App, area: Rect) {
     )));
 
     render_popup(frame, area, "Remove Timezone", &lines, popup_width);
+}
+
+fn render_tz_reorder_menu(frame: &mut Frame, app: &App, area: Rect) {
+    let theme = &app.theme;
+    let popup_width = constants::TZ_REORDER_MENU_WIDTH;
+    let inner_w = (popup_width - 2) as usize;
+
+    let timezones = app.focused_world_clock_timezones();
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if timezones.is_empty() {
+        lines.push(Line::styled(
+            " No timezones to reorder",
+            Style::default().fg(theme.muted),
+        ));
+    } else {
+        for (i, entry) in timezones.iter().enumerate() {
+            let label = entry.label.as_deref().unwrap_or(&entry.timezone);
+            lines.push(styled_menu_line(label, i, app.menu_cursor, inner_w, theme));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Shift+\u{2191}/\u{2193} to move, Esc to close ",
+        Style::default().fg(theme.muted),
+    )));
+
+    render_popup(frame, area, "Reorder Timezones", &lines, popup_width);
 }
 
 fn shortcut_line<'a>(key: &'a str, desc: &'a str, theme: &ResolvedTheme) -> Line<'a> {

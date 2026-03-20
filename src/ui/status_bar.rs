@@ -12,13 +12,14 @@ pub fn render(
     frame: &mut Frame,
     area: Rect,
     ip: &Option<String>,
-    font_name: &str,
     is_editing: bool,
     theme: &ResolvedTheme,
 ) {
     let block = Block::bordered();
     let inner = block.inner(area);
     frame.render_widget(block, area);
+
+    let dim = Style::default().fg(theme.text);
 
     let line = if is_editing {
         let edit_style = Style::default()
@@ -30,7 +31,7 @@ pub fn render(
             Span::styled("  ", Style::default()),
             Span::styled(
                 "Arrows: resize | Shift+Arrows: move | Esc: exit edit",
-                Style::default().fg(theme.muted),
+                dim,
             ),
         ])
     } else {
@@ -39,15 +40,11 @@ pub fn render(
             None => "IP: Loading...".to_string(),
         };
 
-        let muted = Style::default().fg(theme.muted);
-
         Line::from(vec![
             Span::styled("  ", Style::default()),
-            Span::styled(ip_text, muted),
-            Span::styled("  |  ", muted),
-            Span::styled(format!("Font: {font_name}"), muted),
-            Span::styled("  |  ", muted),
-            Span::styled("Tab: navigate | Space: menu | e: edit | a: add | h: help", muted),
+            Span::styled(ip_text, dim),
+            Span::styled("  |  ", dim),
+            Span::styled("Tab: navigate | Space: menu | e: edit | a: add | h: help", dim),
         ])
     };
 

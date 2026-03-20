@@ -29,6 +29,7 @@ pub enum UiMode {
     Help,
     TimezoneSearch,
     TimezoneRemoveMenu,
+    TimezoneReorderMenu,
 }
 
 // ── Menu action ─────────────────────────────────────────────────────
@@ -43,6 +44,7 @@ pub enum MenuAction {
     Remove,
     AddTimezone,
     RemoveTimezone,
+    ReorderTimezones,
 }
 
 const RESIZE_STEP: u16 = 5;
@@ -475,6 +477,10 @@ impl App {
                     action: MenuAction::RemoveTimezone,
                 });
                 items.push(ContextMenuItem {
+                    label: "Reorder timezones".into(),
+                    action: MenuAction::ReorderTimezones,
+                });
+                items.push(ContextMenuItem {
                     label: "Toggle 12h/24h".into(),
                     action: MenuAction::ToggleTimeFormat,
                 });
@@ -547,6 +553,11 @@ impl App {
             MenuAction::RemoveTimezone => {
                 self.menu_cursor = 0;
                 self.ui_mode = UiMode::TimezoneRemoveMenu;
+                return;
+            }
+            MenuAction::ReorderTimezones => {
+                self.menu_cursor = 0;
+                self.ui_mode = UiMode::TimezoneReorderMenu;
                 return;
             }
         }
@@ -801,19 +812,6 @@ impl App {
         self.cycle_font(FontStyle::prev);
     }
 
-    /// Returns the font name shown in the status bar (from first large clock, or first clock).
-    pub fn active_font_name(&self) -> &str {
-        for comp in &self.components {
-            if let ComponentConfig::Clock(ref s) = comp.config
-                && s.style == ClockStyle::Large
-                    && let Some(ComponentRuntime::Clock { font_style, .. }) =
-                        self.runtime.get(&comp.id)
-                    {
-                        return font_style.name();
-                    }
-        }
-        "Block"
-    }
 
     // ── Timezone search ──────────────────────────────────────────────
 
@@ -866,6 +864,20 @@ impl App {
             && tz_index < s.timezones.len()
         {
             s.timezones.remove(tz_index);
+        }
+    }
+
+    /// Swaps two adjacent timezones in the focused world clock.
+    /// `direction` is -1 (swap up) or 1 (swap down).
+    pub fn swap_timezone(&mut self, index: usize, direction: i32) {
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        if let ComponentConfig::WorldClock(s) = &mut self.components[idx].config {
+            let neighbor = index as i32 + direction;
+            if neighbor >= 0 && (neighbor as usize) < s.timezones.len() {
+                s.timezones.swap(index, neighbor as usize);
+            }
         }
     }
 
