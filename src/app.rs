@@ -6,7 +6,7 @@ use tokio::sync::watch;
 use tracing::{error, warn};
 
 use crate::component::{
-    find_empty_cell, ClockStyle, ComponentConfig, ComponentEntry, ComponentType,
+    find_empty_cell, rects_overlap, ClockStyle, ComponentConfig, ComponentEntry, ComponentType,
 };
 use crate::config::{AppConfig, ThemeConfig};
 use crate::constants;
@@ -466,13 +466,7 @@ impl App {
 
         match action {
             MenuAction::ToggleTimeFormat => {
-                if let ComponentConfig::Clock(ref mut s) = self.components[idx].config {
-                    s.time_format = if s.time_format == "24h" {
-                        "12h".to_string()
-                    } else {
-                        "24h".to_string()
-                    };
-                }
+                self.toggle_time_format();
             }
             MenuAction::CycleDateFormat => {
                 if let ComponentConfig::Clock(ref mut s) = self.components[idx].config {
@@ -685,7 +679,7 @@ impl App {
     }
 
     /// Cycle font for the focused component (if it's a large clock).
-    pub fn cycle_font_next(&mut self) {
+    fn cycle_font(&mut self, direction: fn(FontStyle) -> FontStyle) {
         let Some(idx) = self.focused_component_idx() else {
             return;
         };
@@ -696,23 +690,16 @@ impl App {
                     font_style, ..
                 }) = self.runtime.get_mut(&id)
                 {
-                    *font_style = font_style.next();
+                    *font_style = direction(*font_style);
                 }
     }
 
+    pub fn cycle_font_next(&mut self) {
+        self.cycle_font(FontStyle::next);
+    }
+
     pub fn cycle_font_prev(&mut self) {
-        let Some(idx) = self.focused_component_idx() else {
-            return;
-        };
-        let id = self.components[idx].id.clone();
-        if let ComponentConfig::Clock(ref s) = self.components[idx].config
-            && s.style == ClockStyle::Large
-                && let Some(ComponentRuntime::Clock {
-                    font_style, ..
-                }) = self.runtime.get_mut(&id)
-                {
-                    *font_style = font_style.prev();
-                }
+        self.cycle_font(FontStyle::prev);
     }
 
     /// Returns the font name shown in the status bar (from first large clock, or first clock).
@@ -749,10 +736,6 @@ impl App {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
-
-fn rects_overlap(a: (u16, u16, u16, u16), b: (u16, u16, u16, u16)) -> bool {
-    a.0 < b.0 + b.2 && a.0 + a.2 > b.0 && a.1 < b.1 + b.3 && a.1 + a.3 > b.1
-}
 
 fn next_date_preset(current: &str) -> String {
     let presets = constants::DATE_FORMAT_PRESETS;

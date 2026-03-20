@@ -12,7 +12,14 @@ use crate::app::{color_to_rgb, parse_color, FontStyle, ResolvedTheme};
 use crate::component::{ClockSettings, ClockStyle};
 use crate::ui;
 
-const BLINK_REPLACEMENT: char = ' ';
+/// Resolves a component's color list, falling back to the given theme default.
+fn resolve_colors(colors: &[String], fallback: Color) -> Vec<Color> {
+    if colors.is_empty() {
+        vec![fallback]
+    } else {
+        colors.iter().map(|s| parse_color(s)).collect()
+    }
+}
 
 /// Renders a clock component (either large FIGlet or compact text style).
 #[allow(clippy::too_many_arguments)]
@@ -70,11 +77,7 @@ fn render_large(
     };
 
     let time_str = format_time(settings, colon_visible);
-    let colors: Vec<Color> = if settings.colors.is_empty() {
-        vec![theme.primary]
-    } else {
-        settings.colors.iter().map(|s| parse_color(s)).collect()
-    };
+    let colors = resolve_colors(&settings.colors, theme.primary);
     render_figlet_clock(frame, chunks[0], &time_str, font_style, &colors);
 
     let date_str = format_date(settings);
@@ -120,11 +123,7 @@ fn render_compact(
     let time_str = format_time(settings, true);
     let date_str = format_date(settings);
 
-    let time_color = if settings.colors.is_empty() {
-        theme.secondary
-    } else {
-        parse_color(&settings.colors[0])
-    };
+    let time_color = resolve_colors(&settings.colors, theme.secondary)[0];
 
     let lines = vec![
         Line::from(Span::styled(
@@ -140,47 +139,37 @@ fn render_compact(
     ];
 
     let paragraph = Paragraph::new(lines).alignment(Alignment::Center);
-
-    let y_offset = inner.height.saturating_sub(2) / 2;
-    let centered = Rect {
-        x: inner.x,
-        y: inner.y + y_offset,
-        width: inner.width,
-        height: inner.height.saturating_sub(y_offset),
-    };
-
+    let centered = ui::centered_rect(inner, None, 2);
     frame.render_widget(paragraph, centered);
 }
 
 // ── Time/date formatting ────────────────────────────────────────────
 
+fn time_format_str(use_24h: bool, show_seconds: bool) -> &'static str {
+    match (use_24h, show_seconds) {
+        (true, true) => "%H:%M:%S",
+        (true, false) => "%H:%M",
+        (false, true) => "%I:%M:%S %p",
+        (false, false) => "%I:%M %p",
+    }
+}
+
 fn format_time(settings: &ClockSettings, colon_visible: bool) -> String {
     let use_24h = settings.time_format == "24h";
+    let fmt = time_format_str(use_24h, settings.show_seconds);
 
     let time_str = if let Some(ref tz_str) = settings.timezone {
         if let Ok(tz) = tz_str.parse::<Tz>() {
-            let now = Utc::now().with_timezone(&tz);
-            match (use_24h, settings.show_seconds) {
-                (true, true) => now.format("%H:%M:%S").to_string(),
-                (true, false) => now.format("%H:%M").to_string(),
-                (false, true) => now.format("%I:%M:%S %p").to_string(),
-                (false, false) => now.format("%I:%M %p").to_string(),
-            }
+            Utc::now().with_timezone(&tz).format(fmt).to_string()
         } else {
             "??:??".to_string()
         }
     } else {
-        let now = Local::now();
-        match (use_24h, settings.show_seconds) {
-            (true, true) => now.format("%H:%M:%S").to_string(),
-            (true, false) => now.format("%H:%M").to_string(),
-            (false, true) => now.format("%I:%M:%S %p").to_string(),
-            (false, false) => now.format("%I:%M %p").to_string(),
-        }
+        Local::now().format(fmt).to_string()
     };
 
     if !colon_visible {
-        time_str.replace(':', &BLINK_REPLACEMENT.to_string())
+        time_str.replace(':', " ")
     } else {
         time_str
     }
@@ -304,15 +293,7 @@ fn render_figlet_clock(
         .collect();
 
     let content_height = lines.len() as u16;
-    let y_offset = area.height.saturating_sub(content_height) / 2;
-
-    let centered = Rect {
-        x: area.x,
-        y: area.y + y_offset,
-        width: area.width,
-        height: content_height.min(area.height.saturating_sub(y_offset)),
-    };
-
+    let centered = ui::centered_rect(area, None, content_height);
     frame.render_widget(
         Paragraph::new(lines).alignment(Alignment::Center),
         centered,

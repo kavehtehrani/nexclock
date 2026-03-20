@@ -73,16 +73,7 @@ pub fn render(frame: &mut Frame, area: Rect, is_focused: bool, is_editing: bool,
     let content_height = lines.len() as u16;
     let content_width = DAYS_HEADER.len() as u16;
     let paragraph = Paragraph::new(lines).alignment(Alignment::Left);
-
-    let x_offset = inner.width.saturating_sub(content_width) / 2;
-    let y_offset = inner.height.saturating_sub(content_height) / 2;
-    let centered = Rect {
-        x: inner.x + x_offset,
-        y: inner.y + y_offset,
-        width: content_width.min(inner.width),
-        height: inner.height.saturating_sub(y_offset),
-    };
-
+    let centered = ui::centered_rect(inner, Some(content_width), content_height);
     frame.render_widget(paragraph, centered);
 }
 

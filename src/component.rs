@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::constants;
+use crate::defaults::{
+    default_date_format, default_font_style, default_latitude, default_longitude,
+    default_stats_refresh, default_temp_unit, default_time_format, default_true,
+    default_weather_refresh,
+};
 
 // ── Component type identification ───────────────────────────────────
 
@@ -412,34 +416,10 @@ fn generate_id(comp_type: ComponentType) -> String {
     format!("{}_{}", comp_type.type_name(), ts)
 }
 
-// ── Default value functions ─────────────────────────────────────────
 
-fn default_true() -> bool {
-    true
-}
-fn default_time_format() -> String {
-    constants::DEFAULT_TIME_FORMAT.to_string()
-}
-fn default_date_format() -> String {
-    constants::DEFAULT_DATE_FORMAT.to_string()
-}
-fn default_font_style() -> String {
-    constants::DEFAULT_FONT_STYLE.to_string()
-}
-fn default_latitude() -> f64 {
-    constants::DEFAULT_LATITUDE
-}
-fn default_longitude() -> f64 {
-    constants::DEFAULT_LONGITUDE
-}
-fn default_temp_unit() -> String {
-    constants::DEFAULT_TEMP_UNIT.to_string()
-}
-fn default_weather_refresh() -> u64 {
-    constants::DEFAULT_WEATHER_REFRESH_MINUTES
-}
-fn default_stats_refresh() -> u64 {
-    constants::DEFAULT_STATS_REFRESH_SECONDS
+/// Returns true if two grid rectangles (row, col, row_span, col_span) overlap.
+pub fn rects_overlap(a: (u16, u16, u16, u16), b: (u16, u16, u16, u16)) -> bool {
+    a.0 < b.0 + b.2 && a.0 + a.2 > b.0 && a.1 < b.1 + b.3 && a.1 + a.3 > b.1
 }
 
 /// Finds the first empty cell in the grid that is not occupied by any existing component.

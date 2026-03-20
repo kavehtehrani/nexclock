@@ -68,14 +68,6 @@ pub fn render(
 
     let content_height = lines.len() as u16;
     let paragraph = Paragraph::new(lines).alignment(Alignment::Center);
-
-    let y_offset = inner.height.saturating_sub(content_height) / 2;
-    let centered = Rect {
-        x: inner.x,
-        y: inner.y + y_offset,
-        width: inner.width,
-        height: inner.height.saturating_sub(y_offset),
-    };
-
+    let centered = ui::centered_rect(inner, None, content_height);
     frame.render_widget(paragraph, centered);
 }

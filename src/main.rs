@@ -3,6 +3,7 @@ mod component;
 mod config;
 mod constants;
 mod data;
+mod defaults;
 mod error;
 mod event;
 mod ui;

@@ -7,10 +7,14 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::component::{
-    parse_component, CalendarSettings, ClockSettings, ClockStyle, ComponentConfig, ComponentEntry,
-    GridPlacement, SystemStatsSettings, WeatherSettings,
+    parse_component, rects_overlap, CalendarSettings, ClockSettings, ClockStyle, ComponentConfig,
+    ComponentEntry, GridPlacement, SystemStatsSettings, WeatherSettings,
 };
 use crate::constants;
+use crate::defaults::{
+    default_date_format, default_latitude, default_longitude, default_stats_refresh,
+    default_temp_unit, default_time_format, default_true, default_weather_refresh,
+};
 use crate::error::NexClockError;
 
 // ── Theme ───────────────────────────────────────────────────────────
@@ -595,16 +599,10 @@ fn check_overlaps(entries: &[ComponentEntry], issues: &mut Vec<String>) {
             }
             let ap = &a.placement;
             let bp = &b.placement;
-
-            let a_right = ap.column + ap.col_span;
-            let a_bottom = ap.row + ap.row_span;
-            let b_right = bp.column + bp.col_span;
-            let b_bottom = bp.row + bp.row_span;
-
-            let h_overlap = ap.column < b_right && bp.column < a_right;
-            let v_overlap = ap.row < b_bottom && bp.row < a_bottom;
-
-            if h_overlap && v_overlap {
+            if rects_overlap(
+                (ap.row, ap.column, ap.row_span, ap.col_span),
+                (bp.row, bp.column, bp.row_span, bp.col_span),
+            ) {
                 issues.push(format!(
                     "components '{}' and '{}' overlap in the grid",
                     a.id, b.id
@@ -693,17 +691,8 @@ fn default_components() -> BTreeMap<String, toml::Table> {
     map
 }
 
-// ── Default value functions ─────────────────────────────────────────
+// ── Default value functions (config-specific) ───────────────────────
 
-fn default_true() -> bool {
-    true
-}
-fn default_time_format() -> String {
-    constants::DEFAULT_TIME_FORMAT.to_string()
-}
-fn default_date_format() -> String {
-    constants::DEFAULT_DATE_FORMAT.to_string()
-}
 fn default_secondary_timezone() -> String {
     "US/Eastern".to_string()
 }
@@ -715,21 +704,6 @@ fn default_secondary_date_format() -> String {
 }
 fn default_ip_refresh() -> u64 {
     constants::DEFAULT_IP_REFRESH_MINUTES
-}
-fn default_latitude() -> f64 {
-    constants::DEFAULT_LATITUDE
-}
-fn default_longitude() -> f64 {
-    constants::DEFAULT_LONGITUDE
-}
-fn default_temp_unit() -> String {
-    constants::DEFAULT_TEMP_UNIT.to_string()
-}
-fn default_weather_refresh() -> u64 {
-    constants::DEFAULT_WEATHER_REFRESH_MINUTES
-}
-fn default_stats_refresh() -> u64 {
-    constants::DEFAULT_STATS_REFRESH_SECONDS
 }
 fn default_tick_rate() -> u64 {
     constants::DEFAULT_TICK_RATE.as_millis() as u64

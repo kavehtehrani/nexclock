@@ -18,6 +18,25 @@ use crate::component::{ClockStyle, ComponentConfig, ComponentType};
 use crate::constants::{self, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, STATUS_BAR_HEIGHT};
 use crate::data::weather_api::WeatherData;
 
+/// Returns a vertically centered (and optionally horizontally centered) sub-rect.
+/// When `width` is `None`, the full container width is used (vertical-only centering).
+/// When `Some(w)`, both axes are centered.
+pub fn centered_rect(container: Rect, width: Option<u16>, height: u16) -> Rect {
+    let y_offset = container.height.saturating_sub(height) / 2;
+    let (x, w) = if let Some(content_width) = width {
+        let x_offset = container.width.saturating_sub(content_width) / 2;
+        (container.x + x_offset, content_width.min(container.width))
+    } else {
+        (container.x, container.width)
+    };
+    Rect {
+        x,
+        y: container.y + y_offset,
+        width: w,
+        height: container.height.saturating_sub(y_offset),
+    }
+}
+
 /// Returns a bordered block with the given title, highlighted if focused.
 /// In edit mode the border uses a distinct style to indicate the active editing state.
 pub fn panel_block<'a>(
@@ -209,7 +228,7 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &ResolvedTheme) {
         )),
     ];
 
-    render_popup(frame, area, " Help ", &help_lines, 42);
+    render_popup(frame, area, " Help ", &help_lines, constants::HELP_POPUP_WIDTH);
 }
 
 fn render_context_menu(frame: &mut Frame, app: &App, area: Rect) {
@@ -217,20 +236,12 @@ fn render_context_menu(frame: &mut Frame, app: &App, area: Rect) {
     let items = &app.context_menu_items;
     let theme = &app.theme;
 
-    let popup_width: u16 = 35;
+    let popup_width = constants::CONTEXT_MENU_WIDTH;
     let inner_w = (popup_width - 2) as usize;
 
     let mut lines: Vec<Line> = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
-        let style = if i == cursor {
-            Style::default()
-                .fg(Color::Black)
-                .bg(theme.primary)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(theme.text)
-        };
-        lines.push(Line::styled(format!(" {:<w$}", item.label, w = inner_w - 1), style));
+        lines.push(styled_menu_line(&item.label, i, cursor, inner_w, theme));
     }
 
     let title = app
@@ -244,7 +255,7 @@ fn render_visibility_menu(frame: &mut Frame, app: &App, area: Rect) {
     let cursor = app.menu_cursor;
     let theme = &app.theme;
 
-    let popup_width: u16 = 40;
+    let popup_width = constants::VISIBILITY_MENU_WIDTH;
     let inner_w = (popup_width - 2) as usize;
 
     let mut lines: Vec<Line> = Vec::with_capacity(app.components.len());
@@ -252,15 +263,7 @@ fn render_visibility_menu(frame: &mut Frame, app: &App, area: Rect) {
         let checked = if comp.visible { "x" } else { " " };
         let type_label = comp.config.component_type().label();
         let label = format!("[{checked}] {} ({type_label})", comp.id);
-        let style = if i == cursor {
-            Style::default()
-                .fg(Color::Black)
-                .bg(theme.primary)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(theme.text)
-        };
-        lines.push(Line::styled(format!(" {label:<w$}", w = inner_w - 1), style));
+        lines.push(styled_menu_line(&label, i, cursor, inner_w, theme));
     }
 
     lines.push(Line::from(""));
@@ -276,21 +279,13 @@ fn render_add_menu(frame: &mut Frame, app: &App, area: Rect) {
     let cursor = app.menu_cursor;
     let theme = &app.theme;
 
-    let popup_width: u16 = 30;
+    let popup_width = constants::ADD_MENU_WIDTH;
     let inner_w = (popup_width - 2) as usize;
 
     let options = add_menu_options();
     let mut lines: Vec<Line> = Vec::with_capacity(options.len());
     for (i, (label, _, _)) in options.iter().enumerate() {
-        let style = if i == cursor {
-            Style::default()
-                .fg(Color::Black)
-                .bg(theme.primary)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(theme.text)
-        };
-        lines.push(Line::styled(format!(" {label:<w$}", w = inner_w - 1), style));
+        lines.push(styled_menu_line(label, i, cursor, inner_w, theme));
     }
 
     lines.push(Line::from(""));
@@ -314,7 +309,7 @@ fn render_color_menu(frame: &mut Frame, app: &App, area: Rect) {
     let count = presets.len();
     let rows = color_menu_rows();
 
-    let bar_width: usize = 12;
+    let bar_width = constants::COLOR_BAR_WIDTH;
     // layout: " " + indicator + bar + "   " + indicator + bar + " "
     let inner_w = 1 + 1 + bar_width + 3 + 1 + bar_width + 1;
     let popup_width = (inner_w + 2) as u16;
@@ -335,8 +330,9 @@ fn render_color_menu(frame: &mut Frame, app: &App, area: Rect) {
 
         // Left column
         let left_selected = !in_right && row == cursor_row;
+        let arrow = constants::INDICATOR_ARROW;
         spans.push(Span::styled(
-            if left_selected { " \u{25b8}" } else { "  " },
+            if left_selected { format!(" {arrow}") } else { "  ".to_string() },
             indicator_style,
         ));
         append_gradient_bar(&mut spans, presets[left_idx].1, bar_width, theme);
@@ -348,7 +344,7 @@ fn render_color_menu(frame: &mut Frame, app: &App, area: Rect) {
         if right_idx < count {
             let right_selected = in_right && row == cursor_row;
             spans.push(Span::styled(
-                if right_selected { "\u{25b8}" } else { " " },
+                if right_selected { arrow.to_string() } else { " ".to_string() },
                 indicator_style,
             ));
             append_gradient_bar(&mut spans, presets[right_idx].1, bar_width, theme);
@@ -378,7 +374,7 @@ fn append_gradient_bar(spans: &mut Vec<Span<'static>>, colors: &[&str], width: u
 
     for i in 0..width {
         let color = clock::lerp_color(&resolved, i, width);
-        spans.push(Span::styled("\u{2588}", Style::default().fg(color)));
+        spans.push(Span::styled(constants::GRADIENT_BLOCK, Style::default().fg(color)));
     }
 }
 
@@ -391,6 +387,24 @@ pub fn add_menu_options() -> Vec<(&'static str, ComponentType, Option<ClockStyle
         ("Calendar", ComponentType::Calendar, None),
         ("System Stats", ComponentType::SystemStats, None),
     ]
+}
+
+fn styled_menu_line(
+    label: &str,
+    index: usize,
+    cursor: usize,
+    width: usize,
+    theme: &ResolvedTheme,
+) -> Line<'static> {
+    let style = if index == cursor {
+        Style::default()
+            .fg(Color::Black)
+            .bg(theme.primary)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.text)
+    };
+    Line::styled(format!(" {label:<w$}", w = width - 1), style)
 }
 
 fn render_popup(frame: &mut Frame, area: Rect, title: &str, lines: &[Line], width: u16) {
@@ -421,9 +435,10 @@ fn render_popup(frame: &mut Frame, area: Rect, title: &str, lines: &[Line], widt
 }
 
 fn shortcut_line<'a>(key: &'a str, desc: &'a str, theme: &ResolvedTheme) -> Line<'a> {
+    let w = constants::SHORTCUT_KEY_WIDTH;
     Line::from(vec![
         Span::styled(
-            format!("{key:>14}"),
+            format!("{key:>w$}"),
             Style::default()
                 .fg(theme.primary)
                 .add_modifier(Modifier::BOLD),

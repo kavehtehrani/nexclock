@@ -96,6 +96,16 @@ pub const COLOR_PRESETS: &[(&str, &[&str])] = &[
 pub const DEFAULT_GRID_ROWS: u16 = 3;
 pub const DEFAULT_GRID_COLUMNS: u16 = 2;
 
+// UI popup / menu dimensions
+pub const CONTEXT_MENU_WIDTH: u16 = 35;
+pub const VISIBILITY_MENU_WIDTH: u16 = 40;
+pub const ADD_MENU_WIDTH: u16 = 30;
+pub const HELP_POPUP_WIDTH: u16 = 42;
+pub const COLOR_BAR_WIDTH: usize = 12;
+pub const SHORTCUT_KEY_WIDTH: usize = 14;
+pub const INDICATOR_ARROW: &str = "\u{25b8}";
+pub const GRADIENT_BLOCK: &str = "\u{2588}";
+
 // Theme color defaults
 pub const DEFAULT_THEME_PRIMARY: &str = "cyan";
 pub const DEFAULT_THEME_SECONDARY: &str = "yellow";
