@@ -43,8 +43,7 @@ pub enum MenuAction {
 }
 
 const RESIZE_STEP: u16 = 5;
-const MIN_ROW_HEIGHT_PCT: u16 = 10;
-const MIN_COL_WIDTH_PCT: u16 = 10;
+const MIN_SIZE_PCT: u16 = 10;
 
 pub struct ContextMenuItem {
     pub label: String,
@@ -489,94 +488,36 @@ impl App {
         }
     }
 
-    /// Adjusts a grid row's height percentage. Steals/gives from the largest other row.
+    /// Down arrow: grow this row (shrink adjacent neighbor).
+    /// Up arrow: shrink this row (grow adjacent neighbor).
+    /// Neighbor = row below if it exists, else row above (so the last row is never stuck).
     pub fn adjust_row_height(&mut self, row: u16, grow: bool) {
-        let grid = &mut self.config.grid;
-        let n = grid.rows as usize;
-        if n < 2 {
-            return;
-        }
-
-        // Ensure row_heights is materialized (equal distribution if None)
-        let heights = grid.row_heights.get_or_insert_with(|| {
-            let base = 100 / n as u16;
-            let mut v = vec![base; n];
-            v[n - 1] = 100 - base * (n as u16 - 1);
-            v
-        });
-
+        let n = self.config.grid.rows as usize;
         let r = row as usize;
-        if r >= heights.len() {
+        if n < 2 || r >= n {
             return;
         }
-
+        let neighbor = if r + 1 < n { r + 1 } else { r - 1 };
         if grow {
-            // Find the largest other row to steal from
-            let donor = (0..n)
-                .filter(|&i| i != r)
-                .max_by_key(|&i| heights[i])
-                .unwrap();
-            if heights[donor] > MIN_ROW_HEIGHT_PCT {
-                let step = RESIZE_STEP.min(heights[donor] - MIN_ROW_HEIGHT_PCT);
-                heights[r] += step;
-                heights[donor] -= step;
-            }
+            resize_between(&self.config.grid.rows, &mut self.config.grid.row_heights, r, neighbor);
         } else {
-            if heights[r] <= MIN_ROW_HEIGHT_PCT {
-                return;
-            }
-            // Give to the largest other row
-            let receiver = (0..n)
-                .filter(|&i| i != r)
-                .max_by_key(|&i| heights[i])
-                .unwrap();
-            let step = RESIZE_STEP.min(heights[r] - MIN_ROW_HEIGHT_PCT);
-            heights[r] -= step;
-            heights[receiver] += step;
+            resize_between(&self.config.grid.rows, &mut self.config.grid.row_heights, neighbor, r);
         }
     }
 
-    /// Adjusts a grid column's width percentage. Steals/gives from the largest other column.
+    /// Right arrow: grow this column. Left arrow: shrink this column.
+    /// Neighbor = column to right if it exists, else column to left.
     pub fn adjust_col_width(&mut self, col: u16, grow: bool) {
-        let grid = &mut self.config.grid;
-        let n = grid.columns as usize;
-        if n < 2 {
-            return;
-        }
-
-        let widths = grid.column_widths.get_or_insert_with(|| {
-            let base = 100 / n as u16;
-            let mut v = vec![base; n];
-            v[n - 1] = 100 - base * (n as u16 - 1);
-            v
-        });
-
+        let n = self.config.grid.columns as usize;
         let c = col as usize;
-        if c >= widths.len() {
+        if n < 2 || c >= n {
             return;
         }
-
+        let neighbor = if c + 1 < n { c + 1 } else { c - 1 };
         if grow {
-            let donor = (0..n)
-                .filter(|&i| i != c)
-                .max_by_key(|&i| widths[i])
-                .unwrap();
-            if widths[donor] > MIN_COL_WIDTH_PCT {
-                let step = RESIZE_STEP.min(widths[donor] - MIN_COL_WIDTH_PCT);
-                widths[c] += step;
-                widths[donor] -= step;
-            }
+            resize_between(&self.config.grid.columns, &mut self.config.grid.column_widths, c, neighbor);
         } else {
-            if widths[c] <= MIN_COL_WIDTH_PCT {
-                return;
-            }
-            let receiver = (0..n)
-                .filter(|&i| i != c)
-                .max_by_key(|&i| widths[i])
-                .unwrap();
-            let step = RESIZE_STEP.min(widths[c] - MIN_COL_WIDTH_PCT);
-            widths[c] -= step;
-            widths[receiver] += step;
+            resize_between(&self.config.grid.columns, &mut self.config.grid.column_widths, neighbor, c);
         }
     }
 
@@ -821,4 +762,161 @@ fn spawn_stats_task(tx: watch::Sender<SystemStats>, interval_secs: u64) {
             tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
         }
     });
+}
+
+// ── Grid resize helpers (free functions for testability) ─────────
+
+/// Grows `grower` and shrinks `shrinker` by one step in the given percentage vec.
+/// Both indices must be in bounds. The shrinker won't go below the minimum.
+fn resize_between(count: &u16, pcts: &mut Option<Vec<u16>>, grower: usize, shrinker: usize) {
+    let n = *count as usize;
+    if n < 2 || grower >= n || shrinker >= n {
+        return;
+    }
+
+    let sizes = pcts.get_or_insert_with(|| {
+        let base = 100 / n as u16;
+        let mut v = vec![base; n];
+        v[n - 1] = 100 - base * (n as u16 - 1);
+        v
+    });
+
+    if grower == shrinker {
+        return;
+    }
+
+    if sizes[shrinker] <= MIN_SIZE_PCT {
+        return;
+    }
+
+    let step = RESIZE_STEP.min(sizes[shrinker] - MIN_SIZE_PCT);
+    sizes[grower] += step;
+    sizes[shrinker] -= step;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::GridConfig;
+
+    fn grid_3rows() -> GridConfig {
+        GridConfig {
+            rows: 3,
+            columns: 2,
+            row_heights: Some(vec![40, 30, 30]),
+            column_widths: None,
+        }
+    }
+
+    /// Simulates Down (grow=true) / Up (grow=false) on a given row.
+    /// Uses the same logic as adjust_row_height.
+    fn resize(g: &mut GridConfig, row: usize, grow: bool) {
+        let n = g.rows as usize;
+        if n < 2 || row >= n { return; }
+        let neighbor = if row + 1 < n { row + 1 } else { row - 1 };
+        if grow {
+            resize_between(&g.rows, &mut g.row_heights, row, neighbor);
+        } else {
+            resize_between(&g.rows, &mut g.row_heights, neighbor, row);
+        }
+    }
+
+    #[test]
+    fn row0_down_grows_row0_shrinks_row1() {
+        let mut g = grid_3rows();
+        resize(&mut g, 0, true);
+        assert_eq!(g.row_heights.unwrap(), vec![45, 25, 30]);
+    }
+
+    #[test]
+    fn row0_up_shrinks_row0_grows_row1() {
+        let mut g = grid_3rows();
+        resize(&mut g, 0, false);
+        assert_eq!(g.row_heights.unwrap(), vec![35, 35, 30]);
+    }
+
+    #[test]
+    fn row1_down_grows_row1_shrinks_row2() {
+        let mut g = grid_3rows();
+        resize(&mut g, 1, true);
+        assert_eq!(g.row_heights.unwrap(), vec![40, 35, 25]);
+    }
+
+    #[test]
+    fn row1_up_shrinks_row1_grows_row2() {
+        let mut g = grid_3rows();
+        resize(&mut g, 1, false);
+        assert_eq!(g.row_heights.unwrap(), vec![40, 25, 35]);
+    }
+
+    #[test]
+    fn row2_down_grows_row2_shrinks_row1() {
+        let mut g = grid_3rows();
+        resize(&mut g, 2, true); // last row: fallback neighbor = row 1
+        assert_eq!(g.row_heights.unwrap(), vec![40, 25, 35]);
+    }
+
+    #[test]
+    fn row2_up_shrinks_row2_grows_row1() {
+        let mut g = grid_3rows();
+        resize(&mut g, 2, false); // last row: fallback neighbor = row 1
+        assert_eq!(g.row_heights.unwrap(), vec![40, 35, 25]);
+    }
+
+    #[test]
+    fn down_then_up_is_identity() {
+        let mut g = grid_3rows();
+        resize(&mut g, 0, true);
+        resize(&mut g, 0, false);
+        assert_eq!(g.row_heights.unwrap(), vec![40, 30, 30]);
+    }
+
+    #[test]
+    fn row2_down_then_up_is_identity() {
+        let mut g = grid_3rows();
+        resize(&mut g, 2, true);
+        resize(&mut g, 2, false);
+        assert_eq!(g.row_heights.unwrap(), vec![40, 30, 30]);
+    }
+
+    #[test]
+    fn no_row_changes_unrelated_rows() {
+        let mut g = grid_3rows();
+        for _ in 0..4 {
+            resize(&mut g, 0, true);
+        }
+        let h = g.row_heights.unwrap();
+        assert_eq!(h[2], 30, "row 2 untouched when resizing row 0");
+        assert_eq!(h[0] + h[1] + h[2], 100);
+    }
+
+    #[test]
+    fn respects_min() {
+        let mut g = GridConfig {
+            rows: 2,
+            columns: 1,
+            row_heights: Some(vec![85, 15]),
+            column_widths: None,
+        };
+        resize(&mut g, 0, true);
+        assert_eq!(g.row_heights.as_ref().unwrap(), &vec![90, 10]);
+        resize(&mut g, 0, true);
+        assert_eq!(g.row_heights.unwrap(), vec![90, 10], "stops at minimum");
+    }
+
+    #[test]
+    fn col_last_grows_shrinks_left_neighbor() {
+        let mut g = GridConfig {
+            rows: 1,
+            columns: 3,
+            row_heights: None,
+            column_widths: Some(vec![33, 34, 33]),
+        };
+        // Right (grow) on last col: fallback neighbor = col 1
+        let n = g.columns as usize;
+        let c = 2_usize;
+        let neighbor = if c + 1 < n { c + 1 } else { c - 1 };
+        resize_between(&g.columns, &mut g.column_widths, c, neighbor);
+        assert_eq!(g.column_widths.unwrap(), vec![33, 29, 38]);
+    }
 }

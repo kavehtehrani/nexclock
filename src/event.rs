@@ -89,32 +89,42 @@ fn handle_edit_mode_key(app: &mut App, key: KeyEvent) {
             if shifted {
                 app.move_component(idx, -1, 0);
             } else {
-                let row = app.components[idx].placement.row;
-                app.adjust_row_height(row, true);
+                let p = &app.components[idx].placement;
+                // Skip if component spans all rows (resize would be invisible)
+                if p.row_span < app.config.grid.rows {
+                    app.adjust_row_height(p.row, false);
+                }
             }
         }
         KeyCode::Down => {
             if shifted {
                 app.move_component(idx, 1, 0);
             } else {
-                let row = app.components[idx].placement.row;
-                app.adjust_row_height(row, false);
+                let p = &app.components[idx].placement;
+                if p.row_span < app.config.grid.rows {
+                    app.adjust_row_height(p.row, true);
+                }
             }
         }
         KeyCode::Left => {
             if shifted {
                 app.move_component(idx, 0, -1);
             } else {
-                let col = app.components[idx].placement.column;
-                app.adjust_col_width(col, false);
+                let p = &app.components[idx].placement;
+                // Skip if component spans all columns (resize would be invisible)
+                if p.col_span < app.config.grid.columns {
+                    app.adjust_col_width(p.column, false);
+                }
             }
         }
         KeyCode::Right => {
             if shifted {
                 app.move_component(idx, 0, 1);
             } else {
-                let col = app.components[idx].placement.column;
-                app.adjust_col_width(col, true);
+                let p = &app.components[idx].placement;
+                if p.col_span < app.config.grid.columns {
+                    app.adjust_col_width(p.column, true);
+                }
             }
         }
         KeyCode::Char('q') | KeyCode::Char('Q') => {
