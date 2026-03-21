@@ -697,6 +697,8 @@ impl App {
             self.components[mi].placement.column = new_c;
         }
 
+        self.compact_grid();
+
         // Keep focus on the component we just moved
         let vis = self.visible_components();
         if let Some(new_fi) = vis.iter().position(|&ci| ci == idx) {
@@ -750,31 +752,66 @@ impl App {
         }
     }
 
-    /// Shrinks grid.rows and grid.columns to remove trailing empty rows/columns.
+    /// Removes empty rows and columns from the grid by collapsing gaps.
+    ///
+    /// After a move or remove, interior rows/columns may be left with no
+    /// components. This shifts placements to close those gaps and shrinks
+    /// the grid dimensions accordingly.
     fn compact_grid(&mut self) {
-        let min_rows = self
-            .components
-            .iter()
-            .map(|c| c.placement.row + c.placement.row_span)
-            .max()
-            .unwrap_or(1)
-            .max(1);
+        // ── Compact rows ────────────────────────────────────────────
+        let mut occupied_rows: Vec<bool> = vec![false; self.config.grid.rows as usize];
+        for c in &self.components {
+            let start = c.placement.row as usize;
+            let end = (start + c.placement.row_span as usize).min(occupied_rows.len());
+            for slot in &mut occupied_rows[start..end] {
+                *slot = true;
+            }
+        }
 
-        if min_rows < self.config.grid.rows {
-            self.config.grid.rows = min_rows;
+        // Build a mapping: old row -> new row (skipping empty rows)
+        let mut row_map: Vec<u16> = vec![0; self.config.grid.rows as usize];
+        let mut new_row: u16 = 0;
+        for (old, &used) in occupied_rows.iter().enumerate() {
+            row_map[old] = new_row;
+            if used {
+                new_row += 1;
+            }
+        }
+        let new_rows = new_row.max(1);
+
+        if new_rows < self.config.grid.rows {
+            for c in &mut self.components {
+                c.placement.row = row_map[c.placement.row as usize];
+            }
+            self.config.grid.rows = new_rows;
             self.config.grid.row_heights = None;
         }
 
-        let min_cols = self
-            .components
-            .iter()
-            .map(|c| c.placement.column + c.placement.col_span)
-            .max()
-            .unwrap_or(1)
-            .max(1);
+        // ── Compact columns ─────────────────────────────────────────
+        let mut occupied_cols: Vec<bool> = vec![false; self.config.grid.columns as usize];
+        for c in &self.components {
+            let start = c.placement.column as usize;
+            let end = (start + c.placement.col_span as usize).min(occupied_cols.len());
+            for slot in &mut occupied_cols[start..end] {
+                *slot = true;
+            }
+        }
 
-        if min_cols < self.config.grid.columns {
-            self.config.grid.columns = min_cols;
+        let mut col_map: Vec<u16> = vec![0; self.config.grid.columns as usize];
+        let mut new_col: u16 = 0;
+        for (old, &used) in occupied_cols.iter().enumerate() {
+            col_map[old] = new_col;
+            if used {
+                new_col += 1;
+            }
+        }
+        let new_cols = new_col.max(1);
+
+        if new_cols < self.config.grid.columns {
+            for c in &mut self.components {
+                c.placement.column = col_map[c.placement.column as usize];
+            }
+            self.config.grid.columns = new_cols;
             self.config.grid.column_widths = None;
         }
     }
