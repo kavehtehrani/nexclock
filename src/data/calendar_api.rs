@@ -78,9 +78,7 @@ pub async fn fetch_all_calendar_dates(
 /// Full month grid data for rendering a calendar component.
 #[derive(Debug, Clone)]
 pub struct MonthData {
-    pub calendar: String,
     pub year: i64,
-    pub month: u32,
     pub month_name: String,
     pub days_in_month: u32,
     pub first_weekday: u32, // 0=Mon..6=Sun (matches chrono)
@@ -90,6 +88,7 @@ pub struct MonthData {
 #[derive(Deserialize)]
 struct MonthResponse {
     year: i64,
+    #[allow(dead_code)]
     month: u32,
     month_name: String,
     days_in_month: u32,
@@ -139,9 +138,7 @@ pub async fn fetch_month(
     });
 
     Ok(MonthData {
-        calendar: calendar_id.to_string(),
         year: month_resp.year,
-        month: month_resp.month,
         month_name: month_resp.month_name,
         days_in_month: month_resp.days_in_month,
         first_weekday: month_resp.first_weekday,

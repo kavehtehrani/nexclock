@@ -97,7 +97,7 @@ fn render_large(
             .is_some_and(|c| c.use_native)
     });
 
-    let secondary_items: Vec<(&str, String)> = secondary_dates
+    let secondary_items: Vec<String> = secondary_dates
         .iter()
         .map(|entry| {
             let use_native = settings
@@ -105,17 +105,11 @@ fn render_large(
                 .iter()
                 .find(|c| c.calendar_id == entry.calendar_id)
                 .is_some_and(|c| c.use_native);
-            let display = if use_native {
+            if use_native {
                 entry.native_display.clone()
             } else {
                 entry.display.clone()
-            };
-            let label = crate::constants::CALENDAR_SYSTEMS
-                .iter()
-                .find(|(id, _)| *id == entry.calendar_id)
-                .map(|(_, name)| *name)
-                .unwrap_or(&entry.calendar_id);
-            (label, display)
+            }
         })
         .collect();
 
@@ -142,7 +136,6 @@ fn render_large(
             chunks[1],
         );
 
-        let label_style = Style::default().fg(theme.muted);
         let value_style = Style::default()
             .fg(theme.secondary)
             .add_modifier(Modifier::BOLD);
@@ -152,11 +145,8 @@ fn render_large(
         )
         .split(chunks[2]);
 
-        for (i, (label, display)) in secondary_items.iter().enumerate() {
-            let line = Line::from(vec![
-                Span::styled(format!("{label}: "), label_style),
-                Span::styled(display.clone(), value_style),
-            ]);
+        for (i, display) in secondary_items.iter().enumerate() {
+            let line = Line::styled(display.clone(), value_style);
             frame.render_widget(
                 Paragraph::new(line).alignment(Alignment::Center),
                 rows[i],
@@ -181,7 +171,7 @@ fn render_large(
         // Fall back to horizontal columns if too wide.
         let separator = "  \u{b7}  ";
         let mut parts = vec![gregorian.as_str()];
-        for (_, display) in &secondary_items {
+        for display in &secondary_items {
             parts.push(display);
         }
         let joined = parts.join(separator);
@@ -205,7 +195,7 @@ fn render_large(
             let chunks = Layout::vertical([
                 Constraint::Min(1),
                 Constraint::Length(1),
-                Constraint::Length(2),
+                Constraint::Length(1),
             ])
             .split(inner);
 
@@ -218,8 +208,8 @@ fn render_large(
 
             let constraints: Vec<Constraint> = secondary_items
                 .iter()
-                .map(|(label, display)| {
-                    let w = label.len().max(display.len()) + 2;
+                .map(|display| {
+                    let w = display.len() + 2;
                     Constraint::Length(w as u16)
                 })
                 .collect();
@@ -228,18 +218,14 @@ fn render_large(
                 .spacing(2)
                 .split(chunks[2]);
 
-            let label_style = Style::default().fg(theme.muted);
             let value_style = Style::default()
                 .fg(theme.secondary)
                 .add_modifier(Modifier::BOLD);
 
-            for (i, (label, display)) in secondary_items.iter().enumerate() {
-                let cell_lines = vec![
-                    Line::styled(*label, label_style),
-                    Line::styled(display.clone(), value_style),
-                ];
+            for (i, display) in secondary_items.iter().enumerate() {
                 frame.render_widget(
-                    Paragraph::new(cell_lines).alignment(Alignment::Center),
+                    Paragraph::new(Line::styled(display.clone(), value_style))
+                        .alignment(Alignment::Center),
                     cols[i],
                 );
             }
