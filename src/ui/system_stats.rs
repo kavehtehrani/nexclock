@@ -6,7 +6,8 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::ResolvedTheme;
+use crate::app::{parse_color, ResolvedTheme};
+use crate::component::ComponentStyle;
 use crate::data::system::SystemStats;
 use crate::ui;
 
@@ -17,8 +18,9 @@ pub fn render(
     is_focused: bool,
     is_editing: bool,
     theme: &ResolvedTheme,
+    comp_style: &ComponentStyle,
 ) {
-    let block = ui::panel_block("System", is_focused, is_editing, theme);
+    let block = ui::panel_block("System", is_focused, is_editing, theme, comp_style);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -36,6 +38,11 @@ pub fn render(
 
     let uptime_str = stats.uptime.as_deref().unwrap_or("N/A");
 
+    let fg_color = comp_style
+        .fg
+        .as_deref()
+        .map(parse_color);
+
     let lines = vec![
         Line::from(vec![
             Span::styled(
@@ -44,7 +51,7 @@ pub fn render(
                     .fg(theme.muted)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(temp_str, Style::default().fg(theme.secondary)),
+            Span::styled(temp_str, Style::default().fg(fg_color.unwrap_or(theme.secondary))),
         ]),
         Line::from(vec![
             Span::styled(
@@ -53,7 +60,7 @@ pub fn render(
                     .fg(theme.muted)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(mem_str, Style::default().fg(theme.tertiary)),
+            Span::styled(mem_str, Style::default().fg(fg_color.unwrap_or(theme.tertiary))),
         ]),
         Line::from(vec![
             Span::styled(
@@ -62,7 +69,7 @@ pub fn render(
                     .fg(theme.muted)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(uptime_str, Style::default().fg(theme.primary)),
+            Span::styled(uptime_str, Style::default().fg(fg_color.unwrap_or(theme.primary))),
         ]),
     ];
 

@@ -92,6 +92,64 @@ pub const COLOR_PRESETS: &[(&str, &[&str])] = &[
     ("Heatmap", &["#0000FF", "#00FFFF", "#00FF00", "#FFFF00", "#FF0000"]),
 ];
 
+// Style color presets: (label, color_string) -- empty string = reset to default
+pub const STYLE_COLOR_PRESETS: &[(&str, &str)] = &[
+    ("Default", ""),
+    // Basic colors
+    ("Red", "red"),
+    ("Green", "green"),
+    ("Yellow", "yellow"),
+    ("Blue", "blue"),
+    ("Magenta", "magenta"),
+    ("Cyan", "cyan"),
+    ("White", "white"),
+    ("Gray", "gray"),
+    // Light variants
+    ("Light Red", "light_red"),
+    ("Light Green", "light_green"),
+    ("Light Yellow", "light_yellow"),
+    ("Light Blue", "light_blue"),
+    ("Light Magenta", "light_magenta"),
+    ("Light Cyan", "light_cyan"),
+    ("Dark Gray", "dark_gray"),
+    // Hex colors
+    ("Orange", "#FF8C00"),
+    ("Pink", "#FF69B4"),
+    ("Purple", "#9B59B6"),
+    ("Teal", "#00BFA5"),
+    ("Gold", "#FFD700"),
+    ("Coral", "#FF6F61"),
+    ("Indigo", "#4B0082"),
+    ("Slate", "#546E7A"),
+];
+
+pub const STYLE_MENU_WIDTH: u16 = 35;
+
+// AnyCalendar API
+pub const ANYCALENDAR_API_BASE: &str = "https://api.anycalendar.io/api/v1";
+pub const CALENDAR_REFRESH_SECONDS: u64 = 3600;
+
+// Supported calendar systems (excludes "gregorian" -- the main date line covers it)
+pub const CALENDAR_SYSTEMS: &[(&str, &str)] = &[
+    ("bahai", "Baha'i"),
+    ("buddhist", "Buddhist"),
+    ("chinese", "Chinese"),
+    ("coptic", "Coptic"),
+    ("ethiopian", "Ethiopian"),
+    ("hebrew", "Hebrew"),
+    ("indian_civil", "Indian Civil"),
+    ("islamic", "Islamic"),
+    ("iso_week", "ISO Week"),
+    ("julian", "Julian"),
+    ("julian_day", "Julian Day"),
+    ("mayan", "Mayan"),
+    ("persian", "Persian"),
+    ("unix_timestamp", "Unix Timestamp"),
+];
+
+pub const CALENDAR_SELECT_MENU_WIDTH: u16 = 40;
+pub const CALENDAR_REMOVE_MENU_WIDTH: u16 = 40;
+
 // Grid defaults
 pub const DEFAULT_GRID_ROWS: u16 = 3;
 pub const DEFAULT_GRID_COLUMNS: u16 = 2;

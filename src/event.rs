@@ -4,7 +4,7 @@ use crossterm::event::{
 };
 use std::time::Duration;
 
-use crate::app::{App, UiMode};
+use crate::app::{App, StyleProperty, UiMode};
 use crate::ui;
 
 pub fn handle_events(app: &mut App, tick_rate: Duration) -> std::io::Result<()> {
@@ -33,6 +33,10 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         UiMode::VisibilityMenu => handle_visibility_menu_key(app, key.code),
         UiMode::AddComponentMenu => handle_add_menu_key(app, key.code),
         UiMode::ColorMenu => handle_color_menu_key(app, key.code),
+        UiMode::StyleMenu => handle_style_menu_key(app, key.code),
+        UiMode::StyleColorPicker => handle_style_color_picker_key(app, key.code),
+        UiMode::CalendarSelectMenu => handle_cal_select_key(app, key.code),
+        UiMode::CalendarRemoveMenu => handle_cal_remove_key(app, key.code),
         UiMode::TimezoneSearch => handle_tz_search_key(app, key.code),
         UiMode::TimezoneRemoveMenu => handle_tz_remove_menu_key(app, key.code),
         UiMode::TimezoneReorderMenu => handle_tz_reorder_key(app, key),
@@ -254,6 +258,157 @@ fn handle_color_menu_key(app: &mut App, code: KeyCode) {
         KeyCode::Enter => {
             app.apply_color_preset(app.menu_cursor);
             app.ui_mode = UiMode::Normal;
+        }
+        KeyCode::Esc => {
+            app.ui_mode = UiMode::Normal;
+        }
+        _ => {}
+    }
+}
+
+fn handle_style_menu_key(app: &mut App, code: KeyCode) {
+    const ITEM_COUNT: usize = 4; // Text Color, Background, Border Color, Reset All
+    match code {
+        KeyCode::Up => {
+            if app.menu_cursor > 0 {
+                app.menu_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.menu_cursor < ITEM_COUNT - 1 {
+                app.menu_cursor += 1;
+            }
+        }
+        KeyCode::Enter => match app.menu_cursor {
+            0 => {
+                app.style_target = StyleProperty::Fg;
+                app.menu_cursor = 0;
+                app.ui_mode = UiMode::StyleColorPicker;
+            }
+            1 => {
+                app.style_target = StyleProperty::Bg;
+                app.menu_cursor = 0;
+                app.ui_mode = UiMode::StyleColorPicker;
+            }
+            2 => {
+                app.style_target = StyleProperty::BorderColor;
+                app.menu_cursor = 0;
+                app.ui_mode = UiMode::StyleColorPicker;
+            }
+            3 => {
+                app.reset_component_style();
+                app.ui_mode = UiMode::Normal;
+            }
+            _ => {}
+        },
+        KeyCode::Esc => {
+            app.ui_mode = UiMode::Normal;
+        }
+        _ => {}
+    }
+}
+
+fn handle_style_color_picker_key(app: &mut App, code: KeyCode) {
+    let count = crate::constants::STYLE_COLOR_PRESETS.len();
+    let rows = ui::style_color_picker_rows();
+    let in_right = app.menu_cursor >= rows;
+
+    match code {
+        KeyCode::Up => {
+            if in_right {
+                if app.menu_cursor > rows {
+                    app.menu_cursor -= 1;
+                }
+            } else if app.menu_cursor > 0 {
+                app.menu_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            let next = app.menu_cursor + 1;
+            if in_right {
+                if next < count {
+                    app.menu_cursor = next;
+                }
+            } else if next < rows {
+                app.menu_cursor = next;
+            }
+        }
+        KeyCode::Left => {
+            if in_right {
+                app.menu_cursor -= rows;
+            }
+        }
+        KeyCode::Right => {
+            let target = app.menu_cursor + rows;
+            if !in_right && target < count {
+                app.menu_cursor = target;
+            }
+        }
+        KeyCode::Enter => {
+            app.apply_style_color(app.menu_cursor);
+            app.ui_mode = UiMode::Normal;
+        }
+        KeyCode::Esc => {
+            app.ui_mode = UiMode::Normal;
+        }
+        _ => {}
+    }
+}
+
+fn handle_cal_select_key(app: &mut App, code: KeyCode) {
+    let count = app.cal_select_items.len();
+    match code {
+        KeyCode::Up => {
+            if app.cal_select_cursor > 0 {
+                app.cal_select_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.cal_select_cursor < count.saturating_sub(1) {
+                app.cal_select_cursor += 1;
+            }
+        }
+        KeyCode::Enter => {
+            if !app.cal_select_items.is_empty() {
+                app.calendar_select_confirm();
+            }
+            app.ui_mode = UiMode::Normal;
+        }
+        KeyCode::Esc => {
+            app.ui_mode = UiMode::Normal;
+        }
+        _ => {}
+    }
+}
+
+fn handle_cal_remove_key(app: &mut App, code: KeyCode) {
+    let count = app.focused_clock_calendars().len();
+    match code {
+        KeyCode::Up => {
+            if app.menu_cursor > 0 {
+                app.menu_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.menu_cursor < count.saturating_sub(1) {
+                app.menu_cursor += 1;
+            }
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') => {
+            if app.menu_cursor < count {
+                app.toggle_calendar_native(app.menu_cursor);
+            }
+        }
+        KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete | KeyCode::Backspace => {
+            if app.menu_cursor < count {
+                app.remove_secondary_calendar(app.menu_cursor);
+                let new_count = app.focused_clock_calendars().len();
+                if new_count == 0 {
+                    app.ui_mode = UiMode::Normal;
+                } else if app.menu_cursor >= new_count {
+                    app.menu_cursor = new_count - 1;
+                }
+            }
         }
         KeyCode::Esc => {
             app.ui_mode = UiMode::Normal;

@@ -7,27 +7,33 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::ResolvedTheme;
+use crate::app::{parse_color, ResolvedTheme};
+use crate::component::ComponentStyle;
 use crate::ui;
 
 const DAYS_HEADER: &str = "Mo Tu We Th Fr Sa Su";
 
-pub fn render(frame: &mut Frame, area: Rect, is_focused: bool, is_editing: bool, theme: &ResolvedTheme) {
+pub fn render(frame: &mut Frame, area: Rect, is_focused: bool, is_editing: bool, theme: &ResolvedTheme, comp_style: &ComponentStyle) {
     let today = Local::now().date_naive();
     let year = today.year();
     let month = today.month();
 
     let title = format!("{} {}", month_name(month), year);
-    let block = ui::panel_block(&title, is_focused, is_editing, theme);
+    let block = ui::panel_block(&title, is_focused, is_editing, theme, comp_style);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+
+    let fg_color = comp_style
+        .fg
+        .as_deref()
+        .map(parse_color);
 
     let mut lines: Vec<Line> = Vec::new();
 
     lines.push(Line::from(Span::styled(
         DAYS_HEADER,
         Style::default()
-            .fg(theme.primary)
+            .fg(fg_color.unwrap_or(theme.primary))
             .add_modifier(Modifier::BOLD),
     )));
 
@@ -55,7 +61,7 @@ pub fn render(frame: &mut Frame, area: Rect, is_focused: bool, is_editing: bool,
                 let style = if is_today {
                     Style::default()
                         .fg(Color::Black)
-                        .bg(theme.primary)
+                        .bg(fg_color.unwrap_or(theme.primary))
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(theme.text)

@@ -1,7 +1,7 @@
 use chrono::{Local, Utc};
 use chrono_tz::Tz;
 use ratatui::{
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
@@ -9,7 +9,8 @@ use ratatui::{
 };
 
 use crate::app::{color_to_rgb, parse_color, FontStyle, ResolvedTheme};
-use crate::component::{ClockSettings, ClockStyle};
+use crate::component::{ClockSettings, ClockStyle, ComponentStyle};
+use crate::data::calendar_api::CalendarDateEntry;
 use crate::ui;
 
 /// Resolves a component's color list, falling back to the given theme default.
@@ -29,13 +30,15 @@ pub fn render(
     settings: &ClockSettings,
     tick_count: u64,
     font_style: FontStyle,
+    secondary_dates: &[CalendarDateEntry],
     is_focused: bool,
     is_editing: bool,
     theme: &ResolvedTheme,
+    comp_style: &ComponentStyle,
 ) {
     match settings.style {
-        ClockStyle::Large => render_large(frame, area, settings, tick_count, font_style, is_focused, is_editing, theme),
-        ClockStyle::Compact => render_compact(frame, area, settings, is_focused, is_editing, theme),
+        ClockStyle::Large => render_large(frame, area, settings, tick_count, font_style, secondary_dates, is_focused, is_editing, theme, comp_style),
+        ClockStyle::Compact => render_compact(frame, area, settings, is_focused, is_editing, theme, comp_style),
     }
 }
 
@@ -59,16 +62,16 @@ fn render_large(
     settings: &ClockSettings,
     tick_count: u64,
     font_style: FontStyle,
+    secondary_dates: &[CalendarDateEntry],
     is_focused: bool,
     is_editing: bool,
     theme: &ResolvedTheme,
+    comp_style: &ComponentStyle,
 ) {
     let title = clock_title(settings);
-    let block = ui::panel_block(&title, is_focused, is_editing, theme);
+    let block = ui::panel_block(&title, is_focused, is_editing, theme, comp_style);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-
-    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
 
     let colon_visible = if settings.blink_separator {
         tick_count.is_multiple_of(4)
@@ -77,20 +80,171 @@ fn render_large(
     };
 
     let time_str = format_time(settings, colon_visible);
-    let colors = resolve_colors(&settings.colors, theme.primary);
-    render_figlet_clock(frame, chunks[0], &time_str, font_style, &colors);
+    // Per-component fg acts as fallback when no gradient colors are set
+    let fallback = comp_style
+        .fg
+        .as_deref()
+        .map(parse_color)
+        .unwrap_or(theme.primary);
+    let colors = resolve_colors(&settings.colors, fallback);
 
-    let date_str = format_date(settings);
-    let date_line = Line::from(Span::styled(
-        date_str,
-        Style::default()
-            .fg(theme.muted)
-            .add_modifier(Modifier::ITALIC),
-    ));
-    frame.render_widget(
-        Paragraph::new(date_line).alignment(Alignment::Center),
-        chunks[1],
-    );
+    // Resolve secondary calendar display text
+    let any_native = secondary_dates.iter().any(|entry| {
+        settings
+            .secondary_calendars
+            .iter()
+            .find(|c| c.calendar_id == entry.calendar_id)
+            .is_some_and(|c| c.use_native)
+    });
+
+    let secondary_items: Vec<(&str, String)> = secondary_dates
+        .iter()
+        .map(|entry| {
+            let use_native = settings
+                .secondary_calendars
+                .iter()
+                .find(|c| c.calendar_id == entry.calendar_id)
+                .is_some_and(|c| c.use_native);
+            let display = if use_native {
+                entry.native_display.clone()
+            } else {
+                entry.display.clone()
+            };
+            let label = crate::constants::CALENDAR_SYSTEMS
+                .iter()
+                .find(|(id, _)| *id == entry.calendar_id)
+                .map(|(_, name)| *name)
+                .unwrap_or(&entry.calendar_id);
+            (label, display)
+        })
+        .collect();
+
+    let gregorian = format_date(settings);
+    let date_style = Style::default()
+        .fg(theme.muted)
+        .add_modifier(Modifier::ITALIC);
+
+    if any_native {
+        // Native mode: one line per calendar, stacked vertically.
+        // Keeps each script on its own terminal row to avoid BiDi scrambling.
+        let cal_height = secondary_items.len() as u16;
+        let chunks = Layout::vertical([
+            Constraint::Min(1),
+            Constraint::Length(1),
+            Constraint::Length(cal_height),
+        ])
+        .split(inner);
+
+        render_figlet_clock(frame, chunks[0], &time_str, font_style, &colors);
+
+        frame.render_widget(
+            Paragraph::new(Line::styled(gregorian, date_style)).alignment(Alignment::Center),
+            chunks[1],
+        );
+
+        let label_style = Style::default().fg(theme.muted);
+        let value_style = Style::default()
+            .fg(theme.secondary)
+            .add_modifier(Modifier::BOLD);
+
+        let rows = Layout::vertical(
+            secondary_items.iter().map(|_| Constraint::Length(1)).collect::<Vec<_>>(),
+        )
+        .split(chunks[2]);
+
+        for (i, (label, display)) in secondary_items.iter().enumerate() {
+            let line = Line::from(vec![
+                Span::styled(format!("{label}: "), label_style),
+                Span::styled(display.clone(), value_style),
+            ]);
+            frame.render_widget(
+                Paragraph::new(line).alignment(Alignment::Center),
+                rows[i],
+            );
+        }
+    } else if secondary_items.is_empty() {
+        // No secondary calendars
+        let chunks = Layout::vertical([
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+        render_figlet_clock(frame, chunks[0], &time_str, font_style, &colors);
+
+        frame.render_widget(
+            Paragraph::new(Line::styled(gregorian, date_style)).alignment(Alignment::Center),
+            chunks[1],
+        );
+    } else {
+        // Non-native: try to join everything on one line with the Gregorian date.
+        // Fall back to horizontal columns if too wide.
+        let separator = "  \u{b7}  ";
+        let mut parts = vec![gregorian.as_str()];
+        for (_, display) in &secondary_items {
+            parts.push(display);
+        }
+        let joined = parts.join(separator);
+
+        if joined.len() <= inner.width as usize {
+            // Fits on one line
+            let chunks = Layout::vertical([
+                Constraint::Min(1),
+                Constraint::Length(1),
+            ])
+            .split(inner);
+
+            render_figlet_clock(frame, chunks[0], &time_str, font_style, &colors);
+
+            frame.render_widget(
+                Paragraph::new(Line::styled(joined, date_style)).alignment(Alignment::Center),
+                chunks[1],
+            );
+        } else {
+            // Too wide: horizontal columns below the Gregorian date
+            let chunks = Layout::vertical([
+                Constraint::Min(1),
+                Constraint::Length(1),
+                Constraint::Length(2),
+            ])
+            .split(inner);
+
+            render_figlet_clock(frame, chunks[0], &time_str, font_style, &colors);
+
+            frame.render_widget(
+                Paragraph::new(Line::styled(gregorian, date_style)).alignment(Alignment::Center),
+                chunks[1],
+            );
+
+            let constraints: Vec<Constraint> = secondary_items
+                .iter()
+                .map(|(label, display)| {
+                    let w = label.len().max(display.len()) + 2;
+                    Constraint::Length(w as u16)
+                })
+                .collect();
+            let cols = Layout::horizontal(constraints)
+                .flex(Flex::SpaceAround)
+                .spacing(2)
+                .split(chunks[2]);
+
+            let label_style = Style::default().fg(theme.muted);
+            let value_style = Style::default()
+                .fg(theme.secondary)
+                .add_modifier(Modifier::BOLD);
+
+            for (i, (label, display)) in secondary_items.iter().enumerate() {
+                let cell_lines = vec![
+                    Line::styled(*label, label_style),
+                    Line::styled(display.clone(), value_style),
+                ];
+                frame.render_widget(
+                    Paragraph::new(cell_lines).alignment(Alignment::Center),
+                    cols[i],
+                );
+            }
+        }
+    }
 }
 
 // ── Compact style ───────────────────────────────────────────────────
@@ -102,9 +256,10 @@ fn render_compact(
     is_focused: bool,
     is_editing: bool,
     theme: &ResolvedTheme,
+    comp_style: &ComponentStyle,
 ) {
     let title = clock_title(settings);
-    let block = ui::panel_block(&title, is_focused, is_editing, theme);
+    let block = ui::panel_block(&title, is_focused, is_editing, theme, comp_style);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -123,7 +278,12 @@ fn render_compact(
     let time_str = format_time(settings, true);
     let date_str = format_date(settings);
 
-    let time_color = resolve_colors(&settings.colors, theme.secondary)[0];
+    let fallback = comp_style
+        .fg
+        .as_deref()
+        .map(parse_color)
+        .unwrap_or(theme.secondary);
+    let time_color = resolve_colors(&settings.colors, fallback)[0];
 
     let lines = vec![
         Line::from(Span::styled(
@@ -187,7 +347,7 @@ fn format_date(settings: &ClockSettings) -> String {
 }
 
 /// Returns the local timezone name (e.g. "America/Vancouver").
-fn local_timezone_name() -> String {
+pub fn local_timezone_name() -> String {
     if let Ok(target) = std::fs::read_link("/etc/localtime") {
         let path = target.to_string_lossy();
         if let Some(tz) = path.strip_prefix("/usr/share/zoneinfo/") {

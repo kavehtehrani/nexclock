@@ -78,6 +78,15 @@ pub enum ClockStyle {
 }
 
 
+// ── Secondary calendar entry ────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecondaryCalendarEntry {
+    pub calendar_id: String,
+    #[serde(default)]
+    pub use_native: bool,
+}
+
 // ── Per-component settings ──────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,6 +109,8 @@ pub struct ClockSettings {
     pub font_style: String,
     #[serde(default)]
     pub colors: Vec<String>,
+    #[serde(default)]
+    pub secondary_calendars: Vec<SecondaryCalendarEntry>,
 }
 
 impl Default for ClockSettings {
@@ -114,6 +125,7 @@ impl Default for ClockSettings {
             label: None,
             font_style: default_font_style(),
             colors: Vec::new(),
+            secondary_calendars: Vec::new(),
         }
     }
 }
@@ -210,6 +222,18 @@ impl ComponentConfig {
     }
 }
 
+// ── Per-component style overrides ───────────────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ComponentStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_color: Option<String>,
+}
+
 // ── Component entry ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -218,6 +242,7 @@ pub struct ComponentEntry {
     pub placement: GridPlacement,
     pub config: ComponentConfig,
     pub visible: bool,
+    pub style: ComponentStyle,
 }
 
 impl ComponentEntry {
@@ -248,6 +273,7 @@ impl ComponentEntry {
             },
             config,
             visible: true,
+            style: ComponentStyle::default(),
         }
     }
 
@@ -285,6 +311,17 @@ impl ComponentEntry {
 
         if !self.visible {
             table.insert("visible".to_string(), toml::Value::Boolean(false));
+        }
+
+        // Per-component style overrides
+        if let Some(ref fg) = self.style.fg {
+            table.insert("fg".to_string(), toml::Value::String(fg.clone()));
+        }
+        if let Some(ref bg) = self.style.bg {
+            table.insert("bg".to_string(), toml::Value::String(bg.clone()));
+        }
+        if let Some(ref bc) = self.style.border_color {
+            table.insert("border_color".to_string(), toml::Value::String(bc.clone()));
         }
 
         // Type-specific settings
@@ -329,6 +366,30 @@ impl ComponentEntry {
                         toml::Value::Array(
                             s.colors.iter().map(|c| toml::Value::String(c.clone())).collect(),
                         ),
+                    );
+                }
+                if !s.secondary_calendars.is_empty() {
+                    let cal_array: Vec<toml::Value> = s
+                        .secondary_calendars
+                        .iter()
+                        .map(|cal| {
+                            let mut t = toml::Table::new();
+                            t.insert(
+                                "calendar_id".to_string(),
+                                toml::Value::String(cal.calendar_id.clone()),
+                            );
+                            if cal.use_native {
+                                t.insert(
+                                    "use_native".to_string(),
+                                    toml::Value::Boolean(true),
+                                );
+                            }
+                            toml::Value::Table(t)
+                        })
+                        .collect();
+                    table.insert(
+                        "secondary_calendars".to_string(),
+                        toml::Value::Array(cal_array),
                     );
                 }
             }
@@ -426,6 +487,12 @@ pub fn parse_component(id: &str, table: &toml::Table) -> Result<ComponentEntry, 
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
+    let style = ComponentStyle {
+        fg: table.get("fg").and_then(|v| v.as_str()).map(String::from),
+        bg: table.get("bg").and_then(|v| v.as_str()).map(String::from),
+        border_color: table.get("border_color").and_then(|v| v.as_str()).map(String::from),
+    };
+
     let placement = GridPlacement {
         row,
         column,
@@ -469,6 +536,7 @@ pub fn parse_component(id: &str, table: &toml::Table) -> Result<ComponentEntry, 
         placement,
         config,
         visible,
+        style,
     })
 }
 

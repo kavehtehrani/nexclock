@@ -7,10 +7,11 @@ use tracing::{error, warn};
 
 use crate::component::{
     find_empty_cell, rects_overlap, ClockStyle, ComponentConfig, ComponentEntry, ComponentType,
-    TimezoneEntry,
+    SecondaryCalendarEntry, TimezoneEntry,
 };
 use crate::config::{AppConfig, ThemeConfig};
 use crate::constants;
+use crate::data::calendar_api::{self, CalendarDateEntry};
 use crate::data::system::{self, SystemStats};
 use crate::data::weather_api::WeatherData;
 use crate::data::{ip, weather_api};
@@ -26,10 +27,21 @@ pub enum UiMode {
     VisibilityMenu,
     AddComponentMenu,
     ColorMenu,
+    StyleMenu,
+    StyleColorPicker,
+    CalendarSelectMenu,
+    CalendarRemoveMenu,
     Help,
     TimezoneSearch,
     TimezoneRemoveMenu,
     TimezoneReorderMenu,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StyleProperty {
+    Fg,
+    Bg,
+    BorderColor,
 }
 
 // ── Menu action ─────────────────────────────────────────────────────
@@ -41,6 +53,9 @@ pub enum MenuAction {
     ToggleBlink,
     CycleDateFormat,
     ChangeColors,
+    OpenStyle,
+    AddCalendar,
+    RemoveCalendar,
     Remove,
     AddTimezone,
     RemoveTimezone,
@@ -233,6 +248,7 @@ pub fn color_to_rgb(c: Color) -> (u8, u8, u8) {
 pub enum ComponentRuntime {
     Clock {
         font_style: FontStyle,
+        calendar_rx: Option<watch::Receiver<Vec<CalendarDateEntry>>>,
         area: Rect,
     },
     Weather {
@@ -290,6 +306,13 @@ pub struct App {
     pub context_menu_items: Vec<ContextMenuItem>,
     pub menu_cursor: usize,
 
+    // Style editing state
+    pub style_target: StyleProperty,
+
+    // Calendar selection state
+    pub cal_select_cursor: usize,
+    pub cal_select_items: Vec<(&'static str, &'static str)>,
+
     // Timezone search state
     pub tz_search_query: String,
     pub tz_search_results: Vec<&'static str>,
@@ -319,6 +342,9 @@ impl App {
             ui_mode: UiMode::Normal,
             context_menu_items: Vec::new(),
             menu_cursor: 0,
+            style_target: StyleProperty::Fg,
+            cal_select_cursor: 0,
+            cal_select_items: Vec::new(),
             tz_search_query: String::new(),
             tz_search_results: Vec::new(),
             tz_search_cursor: 0,
@@ -461,6 +487,14 @@ impl App {
                         label: "Toggle blink".into(),
                         action: MenuAction::ToggleBlink,
                     });
+                    items.push(ContextMenuItem {
+                        label: "Add calendar".into(),
+                        action: MenuAction::AddCalendar,
+                    });
+                    items.push(ContextMenuItem {
+                        label: "Manage calendars".into(),
+                        action: MenuAction::RemoveCalendar,
+                    });
                 }
                 items.push(ContextMenuItem {
                     label: "Colors".into(),
@@ -491,6 +525,12 @@ impl App {
             }
             _ => {}
         }
+
+        // Style (all types)
+        items.push(ContextMenuItem {
+            label: "Style".into(),
+            action: MenuAction::OpenStyle,
+        });
 
         // Remove
         items.push(ContextMenuItem {
@@ -538,6 +578,20 @@ impl App {
                 self.menu_cursor = 0;
                 self.ui_mode = UiMode::ColorMenu;
                 return; // don't reset to Normal
+            }
+            MenuAction::OpenStyle => {
+                self.menu_cursor = 0;
+                self.ui_mode = UiMode::StyleMenu;
+                return;
+            }
+            MenuAction::AddCalendar => {
+                self.open_calendar_select();
+                return;
+            }
+            MenuAction::RemoveCalendar => {
+                self.menu_cursor = 0;
+                self.ui_mode = UiMode::CalendarRemoveMenu;
+                return;
             }
             MenuAction::Remove => {
                 self.remove_component(idx);
@@ -764,6 +818,34 @@ impl App {
         }
     }
 
+    /// Apply a color from STYLE_COLOR_PRESETS to the focused component's style property.
+    pub fn apply_style_color(&mut self, preset_index: usize) {
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        let Some(&(_, color_str)) = constants::STYLE_COLOR_PRESETS.get(preset_index) else {
+            return;
+        };
+        let value = if color_str.is_empty() {
+            None
+        } else {
+            Some(color_str.to_string())
+        };
+        match self.style_target {
+            StyleProperty::Fg => self.components[idx].style.fg = value,
+            StyleProperty::Bg => self.components[idx].style.bg = value,
+            StyleProperty::BorderColor => self.components[idx].style.border_color = value,
+        }
+    }
+
+    /// Reset all style overrides on the focused component.
+    pub fn reset_component_style(&mut self) {
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        self.components[idx].style = crate::component::ComponentStyle::default();
+    }
+
     /// Toggle time format for the focused component (clock or world clock).
     pub fn toggle_time_format(&mut self) {
         let Some(idx) = self.focused_component_idx() else {
@@ -891,6 +973,104 @@ impl App {
         &[]
     }
 
+    // ── Secondary calendar management ─────────────────────────────
+
+    /// Opens the calendar selection menu, showing only calendars not already added.
+    pub fn open_calendar_select(&mut self) {
+        let existing: Vec<String> = if let Some(comp) = self.focused_component()
+            && let ComponentConfig::Clock(s) = &comp.config
+        {
+            s.secondary_calendars.iter().map(|c| c.calendar_id.clone()).collect()
+        } else {
+            Vec::new()
+        };
+
+        self.cal_select_items = constants::CALENDAR_SYSTEMS
+            .iter()
+            .filter(|(id, _)| !existing.contains(&id.to_string()))
+            .copied()
+            .collect();
+        self.cal_select_cursor = 0;
+        self.ui_mode = UiMode::CalendarSelectMenu;
+    }
+
+    /// Adds the selected calendar to the focused large clock and respawns the fetch task.
+    pub fn calendar_select_confirm(&mut self) {
+        let Some(&(cal_id, _)) = self.cal_select_items.get(self.cal_select_cursor) else {
+            return;
+        };
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        if let ComponentConfig::Clock(ref mut s) = self.components[idx].config {
+            s.secondary_calendars.push(SecondaryCalendarEntry {
+                calendar_id: cal_id.to_string(),
+                use_native: false,
+            });
+        }
+        self.respawn_calendar_task(idx);
+    }
+
+    /// Removes a secondary calendar at the given index from the focused clock.
+    pub fn remove_secondary_calendar(&mut self, cal_index: usize) {
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        if let ComponentConfig::Clock(ref mut s) = self.components[idx].config
+            && cal_index < s.secondary_calendars.len()
+        {
+            s.secondary_calendars.remove(cal_index);
+        }
+        self.respawn_calendar_task(idx);
+    }
+
+    /// Toggles `use_native` on a secondary calendar at the given index.
+    pub fn toggle_calendar_native(&mut self, cal_index: usize) {
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        if let ComponentConfig::Clock(ref mut s) = self.components[idx].config
+            && cal_index < s.secondary_calendars.len()
+        {
+            s.secondary_calendars[cal_index].use_native =
+                !s.secondary_calendars[cal_index].use_native;
+        }
+    }
+
+    /// Returns the secondary calendar list of the focused clock (for the remove menu).
+    pub fn focused_clock_calendars(&self) -> &[SecondaryCalendarEntry] {
+        if let Some(comp) = self.focused_component()
+            && let ComponentConfig::Clock(s) = &comp.config
+        {
+            return &s.secondary_calendars;
+        }
+        &[]
+    }
+
+    /// Recreates the calendar background task for the component at `idx`.
+    fn respawn_calendar_task(&mut self, idx: usize) {
+        let entry = &self.components[idx];
+        let ComponentConfig::Clock(s) = &entry.config else {
+            return;
+        };
+
+        let calendar_rx = if s.secondary_calendars.is_empty() {
+            None
+        } else {
+            let ids: Vec<String> = s.secondary_calendars.iter().map(|c| c.calendar_id.clone()).collect();
+            let tz = s.timezone.clone().unwrap_or_else(|| crate::ui::clock::local_timezone_name());
+            let (tx, rx) = watch::channel(Vec::new());
+            spawn_calendar_task(tx, ids, tz);
+            Some(rx)
+        };
+
+        if let Some(ComponentRuntime::Clock { calendar_rx: rx, .. }) =
+            self.runtime.get_mut(&entry.id)
+        {
+            *rx = calendar_rx;
+        }
+    }
+
     /// Sync runtime state back to config and save.
     pub fn persist_state(&mut self) {
         // Sync font_style from runtime back into component settings
@@ -925,10 +1105,22 @@ fn next_date_preset(current: &str) -> String {
 /// Creates runtime state for a component, spawning background tasks as needed.
 fn spawn_component_runtime(entry: &ComponentEntry) -> ComponentRuntime {
     match &entry.config {
-        ComponentConfig::Clock(s) => ComponentRuntime::Clock {
-            font_style: FontStyle::from_name(&s.font_style),
-            area: Rect::default(),
-        },
+        ComponentConfig::Clock(s) => {
+            let calendar_rx = if s.secondary_calendars.is_empty() {
+                None
+            } else {
+                let ids: Vec<String> = s.secondary_calendars.iter().map(|c| c.calendar_id.clone()).collect();
+                let tz = s.timezone.clone().unwrap_or_else(crate::ui::clock::local_timezone_name);
+                let (tx, rx) = watch::channel(Vec::new());
+                spawn_calendar_task(tx, ids, tz);
+                Some(rx)
+            };
+            ComponentRuntime::Clock {
+                font_style: FontStyle::from_name(&s.font_style),
+                calendar_rx,
+                area: Rect::default(),
+            }
+        }
         ComponentConfig::Weather(s) => {
             let (tx, rx) = watch::channel(None);
             spawn_weather_task(tx, s);
@@ -955,6 +1147,25 @@ fn spawn_component_runtime(entry: &ComponentEntry) -> ComponentRuntime {
 }
 
 // ── Background tasks ────────────────────────────────────────────────
+
+fn spawn_calendar_task(
+    tx: watch::Sender<Vec<CalendarDateEntry>>,
+    calendar_ids: Vec<String>,
+    timezone: String,
+) {
+    tokio::spawn(async move {
+        loop {
+            let dates = calendar_api::fetch_all_calendar_dates(&calendar_ids, &timezone).await;
+            if tx.send(dates).is_err() {
+                break; // receiver dropped, stop task
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(
+                constants::CALENDAR_REFRESH_SECONDS,
+            ))
+            .await;
+        }
+    });
+}
 
 fn spawn_weather_task(
     tx: watch::Sender<Option<WeatherData>>,

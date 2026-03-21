@@ -8,7 +8,8 @@ use tracing::{info, warn};
 
 use crate::component::{
     parse_component, rects_overlap, CalendarSettings, ClockSettings, ClockStyle, ComponentConfig,
-    ComponentEntry, GridPlacement, SystemStatsSettings, WeatherSettings, WorldClockSettings,
+    ComponentEntry, ComponentStyle, GridPlacement, SystemStatsSettings, WeatherSettings,
+    WorldClockSettings,
 };
 use crate::constants;
 use crate::defaults::{
@@ -358,8 +359,10 @@ impl AppConfig {
                 label: None,
                 font_style: constants::DEFAULT_FONT_STYLE.to_string(),
                 colors: Vec::new(),
+                secondary_calendars: Vec::new(),
             }),
             visible: true,
+            style: ComponentStyle::default(),
         };
 
         let mut components = BTreeMap::new();
@@ -385,8 +388,10 @@ impl AppConfig {
                     label: Some(sec_cfg.label),
                     font_style: constants::DEFAULT_FONT_STYLE.to_string(),
                     colors: Vec::new(),
+                    secondary_calendars: Vec::new(),
                 }),
                 visible: true,
+                style: ComponentStyle::default(),
             };
             components.insert("secondary_clock".to_string(), sec_clock.to_toml_table());
         }
@@ -408,6 +413,7 @@ impl AppConfig {
                     refresh_interval_minutes: weather_cfg.refresh_interval_minutes,
                 }),
                 visible: true,
+                style: ComponentStyle::default(),
             };
             components.insert("weather".to_string(), weather.to_toml_table());
         }
@@ -424,6 +430,7 @@ impl AppConfig {
                 },
                 config: ComponentConfig::Calendar(CalendarSettings {}),
                 visible: true,
+                style: ComponentStyle::default(),
             };
             components.insert("calendar".to_string(), calendar.to_toml_table());
         }
@@ -442,6 +449,7 @@ impl AppConfig {
                     refresh_interval_seconds: stats_cfg.refresh_interval_seconds,
                 }),
                 visible: true,
+                style: ComponentStyle::default(),
             };
             components.insert("sys".to_string(), stats.to_toml_table());
         }
@@ -644,6 +652,7 @@ fn default_components() -> BTreeMap<String, toml::Table> {
                 ..ClockSettings::default()
             }),
             visible: true,
+            style: ComponentStyle::default(),
         },
         ComponentEntry {
             id: "world_clock".to_string(),
@@ -655,6 +664,7 @@ fn default_components() -> BTreeMap<String, toml::Table> {
             },
             config: ComponentConfig::WorldClock(WorldClockSettings::default()),
             visible: true,
+            style: ComponentStyle::default(),
         },
         ComponentEntry {
             id: "weather".to_string(),
@@ -666,6 +676,7 @@ fn default_components() -> BTreeMap<String, toml::Table> {
             },
             config: ComponentConfig::Weather(WeatherSettings::default()),
             visible: true,
+            style: ComponentStyle::default(),
         },
         ComponentEntry {
             id: "calendar".to_string(),
@@ -677,6 +688,7 @@ fn default_components() -> BTreeMap<String, toml::Table> {
             },
             config: ComponentConfig::Calendar(CalendarSettings::default()),
             visible: true,
+            style: ComponentStyle::default(),
         },
         ComponentEntry {
             id: "sys".to_string(),
@@ -688,6 +700,7 @@ fn default_components() -> BTreeMap<String, toml::Table> {
             },
             config: ComponentConfig::SystemStats(SystemStatsSettings::default()),
             visible: true,
+            style: ComponentStyle::default(),
         },
     ];
 

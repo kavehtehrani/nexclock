@@ -6,7 +6,8 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::ResolvedTheme;
+use crate::app::{parse_color, ResolvedTheme};
+use crate::component::ComponentStyle;
 use crate::data::weather_api::WeatherData;
 use crate::ui;
 
@@ -17,10 +18,16 @@ pub fn render(
     is_focused: bool,
     is_editing: bool,
     theme: &ResolvedTheme,
+    comp_style: &ComponentStyle,
 ) {
-    let block = ui::panel_block("Weather", is_focused, is_editing, theme);
+    let block = ui::panel_block("Weather", is_focused, is_editing, theme, comp_style);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+
+    let fg_color = comp_style
+        .fg
+        .as_deref()
+        .map(parse_color);
 
     let lines = match weather {
         Some(data) => {
@@ -28,14 +35,14 @@ pub fn render(
                 Line::from(Span::styled(
                     data.description.clone(),
                     Style::default()
-                        .fg(theme.secondary)
+                        .fg(fg_color.unwrap_or(theme.secondary))
                         .add_modifier(Modifier::BOLD),
                 )),
             ];
 
             let mut detail_spans = vec![Span::styled(
                 format!("{:.1}°{}", data.temperature, data.unit),
-                Style::default().fg(theme.primary),
+                Style::default().fg(fg_color.unwrap_or(theme.primary)),
             )];
 
             if let Some(humidity) = data.humidity {

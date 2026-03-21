@@ -14,8 +14,8 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{parse_color, App, ComponentRuntime, FontStyle, ResolvedTheme, UiMode};
-use crate::component::{ClockStyle, ComponentConfig, ComponentType};
+use crate::app::{parse_color, App, ComponentRuntime, FontStyle, ResolvedTheme, StyleProperty, UiMode};
+use crate::component::{ClockStyle, ComponentConfig, ComponentStyle, ComponentType};
 use crate::constants::{self, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, STATUS_BAR_HEIGHT};
 use crate::data::weather_api::WeatherData;
 
@@ -40,11 +40,13 @@ pub fn centered_rect(container: Rect, width: Option<u16>, height: u16) -> Rect {
 
 /// Returns a bordered block with the given title, highlighted if focused.
 /// In edit mode the border uses a distinct style to indicate the active editing state.
+/// Per-component style overrides are applied for bg and border color.
 pub fn panel_block<'a>(
     title: &str,
     is_focused: bool,
     is_editing: bool,
     theme: &ResolvedTheme,
+    comp_style: &ComponentStyle,
 ) -> Block<'a> {
     let border_style = if is_editing {
         Style::default()
@@ -52,18 +54,27 @@ pub fn panel_block<'a>(
             .add_modifier(Modifier::BOLD)
     } else if is_focused {
         Style::default().fg(theme.focus)
+    } else if let Some(ref bc) = comp_style.border_color {
+        Style::default().fg(parse_color(bc))
     } else {
         Style::default()
     };
+
+    let mut block_style = Style::default();
+    if let Some(ref bg) = comp_style.bg {
+        block_style = block_style.bg(parse_color(bg));
+    }
 
     if is_editing {
         Block::bordered()
             .title(format!(" {title} [EDIT] "))
             .border_style(border_style)
+            .style(block_style)
     } else {
         Block::bordered()
             .title(format!(" {title} "))
             .border_style(border_style)
+            .style(block_style)
     }
 }
 
@@ -131,6 +142,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         UiMode::VisibilityMenu => render_visibility_menu(frame, app, area),
         UiMode::AddComponentMenu => render_add_menu(frame, app, area),
         UiMode::ColorMenu => render_color_menu(frame, app, area),
+        UiMode::StyleMenu => render_style_menu(frame, app, area),
+        UiMode::StyleColorPicker => render_style_color_picker(frame, app, area),
+        UiMode::CalendarSelectMenu => render_cal_select_menu(frame, app, area),
+        UiMode::CalendarRemoveMenu => render_cal_remove_menu(frame, app, area),
         UiMode::TimezoneSearch => render_tz_search(frame, app, area),
         UiMode::TimezoneRemoveMenu => render_tz_remove_menu(frame, app, area),
         UiMode::TimezoneReorderMenu => render_tz_reorder_menu(frame, app, area),
@@ -142,16 +157,22 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 fn render_component(frame: &mut Frame, area: Rect, app: &App, idx: usize, is_focused: bool, is_editing: bool) {
     let entry = &app.components[idx];
     let theme = &app.theme;
+    let comp_style = &entry.style;
 
     match &entry.config {
         ComponentConfig::Clock(settings) => {
-            let font_style = if let Some(ComponentRuntime::Clock { font_style, .. }) =
-                app.runtime.get(&entry.id)
-            {
-                *font_style
-            } else {
-                FontStyle::Block
-            };
+            let (font_style, secondary_dates) =
+                if let Some(ComponentRuntime::Clock { font_style, calendar_rx, .. }) =
+                    app.runtime.get(&entry.id)
+                {
+                    let dates = calendar_rx
+                        .as_ref()
+                        .map(|rx| rx.borrow().clone())
+                        .unwrap_or_default();
+                    (*font_style, dates)
+                } else {
+                    (FontStyle::Block, Vec::new())
+                };
 
             clock::render(
                 frame,
@@ -159,9 +180,11 @@ fn render_component(frame: &mut Frame, area: Rect, app: &App, idx: usize, is_foc
                 settings,
                 app.tick_count,
                 font_style,
+                &secondary_dates,
                 is_focused,
                 is_editing,
                 theme,
+                comp_style,
             );
         }
         ComponentConfig::Weather(_) => {
@@ -173,10 +196,10 @@ fn render_component(frame: &mut Frame, area: Rect, app: &App, idx: usize, is_foc
                 } else {
                     None
                 };
-            weather::render(frame, area, &data, is_focused, is_editing, theme);
+            weather::render(frame, area, &data, is_focused, is_editing, theme, comp_style);
         }
         ComponentConfig::Calendar(_) => {
-            calendar::render(frame, area, is_focused, is_editing, theme);
+            calendar::render(frame, area, is_focused, is_editing, theme, comp_style);
         }
         ComponentConfig::SystemStats(_) => {
             let stats = if let Some(ComponentRuntime::SystemStats { stats_rx, .. }) =
@@ -186,10 +209,10 @@ fn render_component(frame: &mut Frame, area: Rect, app: &App, idx: usize, is_foc
             } else {
                 crate::data::system::read_system_stats()
             };
-            system_stats::render(frame, area, &stats, is_focused, is_editing, theme);
+            system_stats::render(frame, area, &stats, is_focused, is_editing, theme, comp_style);
         }
         ComponentConfig::WorldClock(settings) => {
-            world_clock::render(frame, area, settings, is_focused, is_editing, theme);
+            world_clock::render(frame, area, settings, is_focused, is_editing, theme, comp_style);
         }
     }
 }
@@ -371,6 +394,131 @@ fn render_color_menu(frame: &mut Frame, app: &App, area: Rect) {
     render_popup(frame, area, " Colors ", &lines, popup_width);
 }
 
+/// Number of rows in the two-column style color picker layout.
+pub fn style_color_picker_rows() -> usize {
+    constants::STYLE_COLOR_PRESETS.len().div_ceil(2)
+}
+
+fn render_style_menu(frame: &mut Frame, app: &App, area: Rect) {
+    let cursor = app.menu_cursor;
+    let theme = &app.theme;
+    let popup_width = constants::STYLE_MENU_WIDTH;
+    let inner_w = (popup_width - 2) as usize;
+
+    let options = ["Text Color", "Background", "Border Color", "Reset All"];
+    let mut lines: Vec<Line> = Vec::with_capacity(options.len());
+    for (i, label) in options.iter().enumerate() {
+        lines.push(styled_menu_line(label, i, cursor, inner_w, theme));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Esc to cancel ",
+        Style::default().fg(theme.muted),
+    )));
+
+    render_popup(frame, area, "Style", &lines, popup_width);
+}
+
+fn render_style_color_picker(frame: &mut Frame, app: &App, area: Rect) {
+    let cursor = app.menu_cursor;
+    let theme = &app.theme;
+    let presets = constants::STYLE_COLOR_PRESETS;
+    let count = presets.len();
+    let rows = style_color_picker_rows();
+
+    let label_width: usize = 14;
+    // layout: " " + indicator(2) + swatch(2) + " " + label + "   " + indicator(1) + swatch(2) + " " + label + " "
+    let inner_w = 2 + 2 + 1 + label_width + 3 + 1 + 2 + 1 + label_width + 1;
+    let popup_width = (inner_w + 2) as u16;
+
+    let in_right = cursor >= rows;
+    let cursor_row = if in_right { cursor - rows } else { cursor };
+
+    let indicator_style = Style::default()
+        .fg(theme.focus)
+        .add_modifier(Modifier::BOLD);
+
+    let title = match app.style_target {
+        StyleProperty::Fg => "Text Color",
+        StyleProperty::Bg => "Background",
+        StyleProperty::BorderColor => "Border Color",
+    };
+
+    let mut lines: Vec<Line> = Vec::with_capacity(rows + 2);
+    for row in 0..rows {
+        let left_idx = row;
+        let right_idx = rows + row;
+
+        let mut spans = Vec::new();
+
+        // Left column
+        let left_selected = !in_right && row == cursor_row;
+        let arrow = constants::INDICATOR_ARROW;
+        spans.push(Span::styled(
+            if left_selected { format!(" {arrow}") } else { "  ".to_string() },
+            indicator_style,
+        ));
+        append_color_swatch(&mut spans, presets[left_idx].1, theme);
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!("{:<w$}", presets[left_idx].0, w = label_width),
+            if left_selected {
+                Style::default().fg(theme.focus).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.text)
+            },
+        ));
+
+        // Gap between columns
+        spans.push(Span::raw("   "));
+
+        // Right column
+        if right_idx < count {
+            let right_selected = in_right && row == cursor_row;
+            spans.push(Span::styled(
+                if right_selected { arrow.to_string() } else { " ".to_string() },
+                indicator_style,
+            ));
+            append_color_swatch(&mut spans, presets[right_idx].1, theme);
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("{:<w$}", presets[right_idx].0, w = label_width),
+                if right_selected {
+                    Style::default().fg(theme.focus).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.text)
+                },
+            ));
+            spans.push(Span::raw(" "));
+        }
+
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Esc to cancel ",
+        Style::default().fg(theme.muted),
+    )));
+
+    render_popup(frame, area, title, &lines, popup_width);
+}
+
+/// Appends a 2-char color swatch block for a single color string.
+fn append_color_swatch(spans: &mut Vec<Span<'static>>, color_str: &str, theme: &ResolvedTheme) {
+    let color = if color_str.is_empty() {
+        theme.text
+    } else {
+        parse_color(color_str)
+    };
+    let block = constants::GRADIENT_BLOCK;
+    spans.push(Span::styled(
+        format!("{block}{block}"),
+        Style::default().fg(color),
+    ));
+}
+
 fn append_gradient_bar(spans: &mut Vec<Span<'static>>, colors: &[&str], width: usize, theme: &ResolvedTheme) {
     let resolved: Vec<Color> = if colors.is_empty() {
         vec![theme.primary]
@@ -439,6 +587,72 @@ fn render_popup(frame: &mut Frame, area: Rect, title: &str, lines: &[Line], widt
             .alignment(Alignment::Center),
         popup_area,
     );
+}
+
+fn render_cal_select_menu(frame: &mut Frame, app: &App, area: Rect) {
+    let cursor = app.cal_select_cursor;
+    let theme = &app.theme;
+    let popup_width = constants::CALENDAR_SELECT_MENU_WIDTH;
+    let inner_w = (popup_width - 2) as usize;
+
+    let items = &app.cal_select_items;
+    let mut lines: Vec<Line> = Vec::with_capacity(items.len());
+
+    if items.is_empty() {
+        lines.push(Line::styled(
+            " All calendars already added",
+            Style::default().fg(theme.muted),
+        ));
+    } else {
+        for (i, &(_, label)) in items.iter().enumerate() {
+            lines.push(styled_menu_line(label, i, cursor, inner_w, theme));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Esc to cancel ",
+        Style::default().fg(theme.muted),
+    )));
+
+    render_popup(frame, area, "Add Calendar", &lines, popup_width);
+}
+
+fn render_cal_remove_menu(frame: &mut Frame, app: &App, area: Rect) {
+    let cursor = app.menu_cursor;
+    let theme = &app.theme;
+    let popup_width = constants::CALENDAR_REMOVE_MENU_WIDTH;
+    let inner_w = (popup_width - 2) as usize;
+
+    let calendars = app.focused_clock_calendars();
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if calendars.is_empty() {
+        lines.push(Line::styled(
+            " No calendars configured",
+            Style::default().fg(theme.muted),
+        ));
+    } else {
+        for (i, entry) in calendars.iter().enumerate() {
+            let name = constants::CALENDAR_SYSTEMS
+                .iter()
+                .find(|(id, _)| *id == entry.calendar_id)
+                .map(|(_, name)| *name)
+                .unwrap_or(&entry.calendar_id);
+            let native_tag = if entry.use_native { " [native]" } else { "" };
+            let label = format!("{name}{native_tag}");
+            lines.push(styled_menu_line(&label, i, cursor, inner_w, theme));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " n: native  d: remove  Esc: close ",
+        Style::default().fg(theme.muted),
+    )));
+
+    render_popup(frame, area, "Calendars", &lines, popup_width);
 }
 
 fn render_tz_search(frame: &mut Frame, app: &App, area: Rect) {
