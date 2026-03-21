@@ -64,3 +64,6 @@ rustup target add arm-unknown-linux-gnueabihf
 # Build
 cargo build --release --target arm-unknown-linux-gnueabihf
 ```
+
+You can also just do `cargo build` on the Raspberry Pi and it works fine. It will just take a long time (+20 min
+on first build)
