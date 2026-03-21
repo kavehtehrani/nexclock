@@ -10,6 +10,13 @@ Wanted to see how much more productive I would be vs. my
 [last similar project](https://github.com/kavehtehrani/pihole_lcd), 
 before the arrival of  AI coding.
 
+Sample terminal look
+![nexclock_terminal.png](images/nexclock_terminal.png)
+
+And on top of my homelab
+![rpi_hyperpixel.jpg](images/rpi_hyperpixel.jpg)
+
+
 
 ## Components
 
