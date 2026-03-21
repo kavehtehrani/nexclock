@@ -115,7 +115,7 @@ fn render_large(
 
     let gregorian = format_date(settings);
     let date_style = Style::default()
-        .fg(theme.muted)
+        .fg(theme.text)
         .add_modifier(Modifier::ITALIC);
 
     if any_native {
@@ -280,7 +280,7 @@ fn render_compact(
         )),
         Line::from(Span::styled(
             date_str,
-            Style::default().fg(theme.muted),
+            Style::default().fg(theme.text),
         )),
     ];
 

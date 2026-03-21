@@ -164,7 +164,7 @@ fn row_spans(
     vec![
         Span::styled(
             format!("{label:<w$}", w = label_width),
-            Style::default().fg(theme.muted),
+            Style::default().fg(theme.text),
         ),
         Span::raw(" ".repeat(LABEL_TIME_GAP)),
         Span::styled(

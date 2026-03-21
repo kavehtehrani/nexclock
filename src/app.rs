@@ -61,6 +61,7 @@ pub enum MenuAction {
     AddTimezone,
     RemoveTimezone,
     ReorderTimezones,
+    SpanFullRow,
 }
 
 const RESIZE_STEP: u16 = 5;
@@ -534,6 +535,20 @@ impl App {
             _ => {}
         }
 
+        // Span full row (all types, only if grid has multiple columns)
+        if self.config.grid.columns > 1 {
+            let p = &comp.placement;
+            let label = if p.col_span >= self.config.grid.columns {
+                "Unspan row"
+            } else {
+                "Span full row"
+            };
+            items.push(ContextMenuItem {
+                label: label.into(),
+                action: MenuAction::SpanFullRow,
+            });
+        }
+
         // Style (all types)
         items.push(ContextMenuItem {
             label: "Style".into(),
@@ -626,6 +641,9 @@ impl App {
                 self.ui_mode = UiMode::TimezoneReorderMenu;
                 return;
             }
+            MenuAction::SpanFullRow => {
+                self.toggle_span_full_row(idx);
+            }
         }
         self.ui_mode = UiMode::Normal;
     }
@@ -704,6 +722,37 @@ impl App {
         if let Some(new_fi) = vis.iter().position(|&ci| ci == idx) {
             self.focused_index = new_fi;
         }
+    }
+
+    /// Toggle spanning the full row. If already spanning, revert to col_span=1.
+    /// Only expands if no other visible component occupies the same row.
+    fn toggle_span_full_row(&mut self, idx: usize) {
+        let grid_cols = self.config.grid.columns;
+        let p = &self.components[idx].placement;
+
+        if p.col_span >= grid_cols {
+            // Already spanning full row: shrink back to 1 column
+            self.components[idx].placement.col_span = 1;
+            self.components[idx].placement.column = 0;
+        } else {
+            // Check that no other visible component occupies any cell in this row
+            let row = p.row;
+            let row_span = p.row_span;
+            let can_span = self.components.iter().enumerate().all(|(ci, c)| {
+                ci == idx
+                    || !c.visible
+                    || !rects_overlap(
+                        (row, 0, row_span, grid_cols),
+                        (c.placement.row, c.placement.column, c.placement.row_span, c.placement.col_span),
+                    )
+            });
+
+            if can_span {
+                self.components[idx].placement.column = 0;
+                self.components[idx].placement.col_span = grid_cols;
+            }
+        }
+
     }
 
     /// Down arrow: grow this row (shrink adjacent neighbor).
