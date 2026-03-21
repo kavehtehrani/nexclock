@@ -198,8 +198,15 @@ fn render_component(frame: &mut Frame, area: Rect, app: &App, idx: usize, is_foc
                 };
             weather::render(frame, area, &data, is_focused, is_editing, theme, comp_style);
         }
-        ComponentConfig::Calendar(_) => {
-            calendar::render(frame, area, is_focused, is_editing, theme, comp_style);
+        ComponentConfig::Calendar(settings) => {
+            let month_data = if let Some(ComponentRuntime::Calendar { month_rx, .. }) =
+                app.runtime.get(&entry.id)
+            {
+                month_rx.as_ref().and_then(|rx| rx.borrow().clone())
+            } else {
+                None
+            };
+            calendar::render(frame, area, settings, &month_data, is_focused, is_editing, theme, comp_style);
         }
         ComponentConfig::SystemStats(_) => {
             let stats = if let Some(ComponentRuntime::SystemStats { stats_rx, .. }) =

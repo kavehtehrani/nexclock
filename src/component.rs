@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::defaults::{
-    default_date_format, default_font_style, default_latitude, default_longitude,
-    default_stats_refresh, default_temp_unit, default_time_format,
+    default_calendar_type, default_date_format, default_font_style, default_latitude,
+    default_longitude, default_stats_refresh, default_temp_unit, default_time_format,
     default_false, default_weather_refresh, default_world_clock_timezones,
 };
 
@@ -153,9 +153,18 @@ impl Default for WeatherSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CalendarSettings {
-    // Future: calendar_type for Gregorian vs Persian
+    #[serde(default = "default_calendar_type")]
+    pub calendar_type: String,
+}
+
+impl Default for CalendarSettings {
+    fn default() -> Self {
+        Self {
+            calendar_type: default_calendar_type(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -411,8 +420,13 @@ impl ComponentEntry {
                     toml::Value::Integer(s.refresh_interval_minutes as i64),
                 );
             }
-            ComponentConfig::Calendar(_) => {
-                // No extra fields yet
+            ComponentConfig::Calendar(s) => {
+                if s.calendar_type != "gregorian" {
+                    table.insert(
+                        "calendar_type".to_string(),
+                        toml::Value::String(s.calendar_type.clone()),
+                    );
+                }
             }
             ComponentConfig::SystemStats(s) => {
                 table.insert(

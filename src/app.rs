@@ -11,7 +11,7 @@ use crate::component::{
 };
 use crate::config::{AppConfig, ThemeConfig};
 use crate::constants;
-use crate::data::calendar_api::{self, CalendarDateEntry};
+use crate::data::calendar_api::{self, CalendarDateEntry, MonthData};
 use crate::data::system::{self, SystemStats};
 use crate::data::weather_api::WeatherData;
 use crate::data::{ip, weather_api};
@@ -56,6 +56,7 @@ pub enum MenuAction {
     OpenStyle,
     AddCalendar,
     RemoveCalendar,
+    ChangeCalendarType,
     Remove,
     AddTimezone,
     RemoveTimezone,
@@ -256,6 +257,7 @@ pub enum ComponentRuntime {
         area: Rect,
     },
     Calendar {
+        month_rx: Option<watch::Receiver<Option<MonthData>>>,
         area: Rect,
     },
     SystemStats {
@@ -272,7 +274,7 @@ impl ComponentRuntime {
         match self {
             Self::Clock { area, .. } => *area,
             Self::Weather { area, .. } => *area,
-            Self::Calendar { area } => *area,
+            Self::Calendar { area, .. } => *area,
             Self::SystemStats { area, .. } => *area,
             Self::WorldClock { area } => *area,
         }
@@ -282,7 +284,7 @@ impl ComponentRuntime {
         match self {
             Self::Clock { area, .. } => *area = new_area,
             Self::Weather { area, .. } => *area = new_area,
-            Self::Calendar { area } => *area = new_area,
+            Self::Calendar { area, .. } => *area = new_area,
             Self::SystemStats { area, .. } => *area = new_area,
             Self::WorldClock { area } => *area = new_area,
         }
@@ -523,6 +525,12 @@ impl App {
                     action: MenuAction::ToggleSeconds,
                 });
             }
+            ComponentConfig::Calendar(_) => {
+                items.push(ContextMenuItem {
+                    label: "Change calendar".into(),
+                    action: MenuAction::ChangeCalendarType,
+                });
+            }
             _ => {}
         }
 
@@ -591,6 +599,10 @@ impl App {
             MenuAction::RemoveCalendar => {
                 self.menu_cursor = 0;
                 self.ui_mode = UiMode::CalendarRemoveMenu;
+                return;
+            }
+            MenuAction::ChangeCalendarType => {
+                self.open_calendar_type_select();
                 return;
             }
             MenuAction::Remove => {
@@ -1071,6 +1083,31 @@ impl App {
         }
     }
 
+    // ── Calendar type change ──────────────────────────────────────
+
+    /// Opens the calendar type selection menu (includes "gregorian").
+    pub fn open_calendar_type_select(&mut self) {
+        let mut items: Vec<(&'static str, &'static str)> = vec![("gregorian", "Gregorian")];
+        items.extend_from_slice(constants::CALENDAR_SYSTEMS);
+        self.cal_select_items = items;
+        self.cal_select_cursor = 0;
+        self.ui_mode = UiMode::CalendarSelectMenu;
+    }
+
+    /// Changes the focused calendar component's calendar type and respawns its runtime.
+    pub fn change_calendar_type(&mut self, calendar_id: &str) {
+        let Some(idx) = self.focused_component_idx() else {
+            return;
+        };
+        if let ComponentConfig::Calendar(ref mut s) = self.components[idx].config {
+            s.calendar_type = calendar_id.to_string();
+        }
+        // Respawn runtime for the new calendar type
+        let entry = &self.components[idx];
+        let rt = spawn_component_runtime(entry);
+        self.runtime.insert(entry.id.clone(), rt);
+    }
+
     /// Sync runtime state back to config and save.
     pub fn persist_state(&mut self) {
         // Sync font_style from runtime back into component settings
@@ -1129,9 +1166,20 @@ fn spawn_component_runtime(entry: &ComponentEntry) -> ComponentRuntime {
                 area: Rect::default(),
             }
         }
-        ComponentConfig::Calendar(_) => ComponentRuntime::Calendar {
-            area: Rect::default(),
-        },
+        ComponentConfig::Calendar(s) => {
+            let month_rx = if s.calendar_type == "gregorian" {
+                None
+            } else {
+                let (tx, rx) = watch::channel(None);
+                let tz = crate::ui::clock::local_timezone_name();
+                spawn_month_task(tx, s.calendar_type.clone(), tz);
+                Some(rx)
+            };
+            ComponentRuntime::Calendar {
+                month_rx,
+                area: Rect::default(),
+            }
+        }
         ComponentConfig::SystemStats(s) => {
             let (tx, rx) = watch::channel(system::read_system_stats());
             spawn_stats_task(tx, s.refresh_interval_seconds);
@@ -1158,6 +1206,31 @@ fn spawn_calendar_task(
             let dates = calendar_api::fetch_all_calendar_dates(&calendar_ids, &timezone).await;
             if tx.send(dates).is_err() {
                 break; // receiver dropped, stop task
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(
+                constants::CALENDAR_REFRESH_SECONDS,
+            ))
+            .await;
+        }
+    });
+}
+
+fn spawn_month_task(
+    tx: watch::Sender<Option<MonthData>>,
+    calendar_id: String,
+    timezone: String,
+) {
+    tokio::spawn(async move {
+        loop {
+            match calendar_api::fetch_month(&calendar_id, &timezone).await {
+                Ok(data) => {
+                    if tx.send(Some(data)).is_err() {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    error!("Month fetch failed for '{calendar_id}': {err}");
+                }
             }
             tokio::time::sleep(std::time::Duration::from_secs(
                 constants::CALENDAR_REFRESH_SECONDS,

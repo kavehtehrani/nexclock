@@ -370,7 +370,17 @@ fn handle_cal_select_key(app: &mut App, code: KeyCode) {
         }
         KeyCode::Enter => {
             if !app.cal_select_items.is_empty() {
-                app.calendar_select_confirm();
+                // Determine action based on the focused component type
+                let is_calendar_component = app
+                    .focused_component()
+                    .is_some_and(|c| matches!(c.config, crate::component::ComponentConfig::Calendar(_)));
+                if is_calendar_component {
+                    if let Some(&(cal_id, _)) = app.cal_select_items.get(app.cal_select_cursor) {
+                        app.change_calendar_type(cal_id);
+                    }
+                } else {
+                    app.calendar_select_confirm();
+                }
             }
             app.ui_mode = UiMode::Normal;
         }

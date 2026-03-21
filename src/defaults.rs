@@ -32,6 +32,9 @@ pub fn default_weather_refresh() -> u64 {
 pub fn default_stats_refresh() -> u64 {
     constants::DEFAULT_STATS_REFRESH_SECONDS
 }
+pub fn default_calendar_type() -> String {
+    "gregorian".to_string()
+}
 pub fn default_world_clock_timezones() -> Vec<crate::component::TimezoneEntry> {
     vec![
         crate::component::TimezoneEntry {

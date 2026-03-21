@@ -428,7 +428,7 @@ impl AppConfig {
                     row_span: 1,
                     col_span: 1,
                 },
-                config: ComponentConfig::Calendar(CalendarSettings {}),
+                config: ComponentConfig::Calendar(CalendarSettings::default()),
                 visible: true,
                 style: ComponentStyle::default(),
             };
